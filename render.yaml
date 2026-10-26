@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: market-terminal-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: frankfurt
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: development
+      - key: MAX_CLIENTS
+        value: 250
+      - key: MAX_SUBSCRIPTIONS
+        value: 25
