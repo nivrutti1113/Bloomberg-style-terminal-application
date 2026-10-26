@@ -14,6 +14,7 @@ import {
 } from "lightweight-charts";
 import { useTerminalStore } from "@/store/terminalStore";
 import { wsManager } from "@/lib/ws/wsManager";
+import { getApiBaseUrl } from "@/config/env";
 import { Tick } from "@/types/market";
 import {
   CandleDataPoint,
@@ -290,7 +291,7 @@ export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
         // Try backend /candles first
         let rawCandles: { time: number; open: number; high: number; low: number; close: number; volume: number }[] = [];
         try {
-          const res = await fetch(`http://localhost:8000/candles?symbol=${targetSymbol}&tf=${timeframe}&limit=180`);
+          const res = await fetch(`${getApiBaseUrl()}/candles?symbol=${targetSymbol}&tf=${timeframe}&limit=180`);
           if (res.ok) {
             const data = await res.json();
             rawCandles = data.candles || [];

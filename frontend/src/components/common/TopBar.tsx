@@ -115,6 +115,8 @@ export const TopBar: React.FC<TopBarProps> = ({ onExecuteCommand }) => {
     switch (status) {
       case "CONNECTED":
         return <span className="text-[#00D26A] font-bold">● CONNECTED</span>;
+      case "DIRECT_FALLBACK":
+        return <span className="text-[#FFB000] font-bold">▲ DIRECT FEED (BACKEND DOWN)</span>;
       case "RECONNECTING":
         return <span className="text-[#FFB000] font-bold animate-pulse">◐ RECONNECTING</span>;
       case "STALE":

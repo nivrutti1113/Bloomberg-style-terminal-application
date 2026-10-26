@@ -29,7 +29,7 @@ export interface SymbolPrice {
   flashTimestamp?: number;
 }
 
-export type WsConnectionStatus = "CONNECTED" | "RECONNECTING" | "DISCONNECTED" | "STALE";
+export type WsConnectionStatus = "CONNECTED" | "RECONNECTING" | "DISCONNECTED" | "STALE" | "DIRECT_FALLBACK";
 
 export interface ServerMetrics {
   ticks_per_sec: number;

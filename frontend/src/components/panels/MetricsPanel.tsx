@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { ServerMetrics } from "@/types/market";
 import { wsManager } from "@/lib/ws/wsManager";
 import { useTerminalStore } from "@/store/terminalStore";
+import { getApiBaseUrl } from "@/config/env";
 
 export const MetricsPanel: React.FC = () => {
   const { connectionStatus, latencyMs, p99LatencyMs } = useTerminalStore();
@@ -16,7 +17,7 @@ export const MetricsPanel: React.FC = () => {
 
     const fetchMetrics = async () => {
       try {
-        const res = await fetch("http://localhost:8000/metrics");
+        const res = await fetch(`${getApiBaseUrl()}/metrics`);
         if (res.ok) {
           const data = (await res.json()) as ServerMetrics;
           if (isMounted) {

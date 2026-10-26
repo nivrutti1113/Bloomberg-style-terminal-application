@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useTerminalStore } from "@/store/terminalStore";
+import { getApiBaseUrl } from "@/config/env";
 
 interface AnalyticsPanelProps {
   symbol?: string;
@@ -69,9 +70,10 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ symbol, defaultT
     const fetchAnalytics = async () => {
       try {
         setError(null);
+        const baseUrl = getApiBaseUrl();
         const [harRes, btRes] = await Promise.allSettled([
-          fetch(`http://localhost:8000/analytics/har/${targetSymbol}`).then((r) => r.json()),
-          fetch(`http://localhost:8000/analytics/voltarget/${targetSymbol}`).then((r) => r.json()),
+          fetch(`${baseUrl}/analytics/har/${targetSymbol}`).then((r) => r.json()),
+          fetch(`${baseUrl}/analytics/voltarget/${targetSymbol}`).then((r) => r.json()),
         ]);
 
         if (isMounted) {

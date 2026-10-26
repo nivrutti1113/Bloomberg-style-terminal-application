@@ -15,6 +15,7 @@
  */
 
 import { OrderBookData, Tick, WsConnectionStatus } from "@/types/market";
+import { getWsBaseUrl, getWsBookUrl } from "@/config/env";
 
 type TickListener = (ticks: Tick[]) => void;
 type StatusListener = (status: WsConnectionStatus, latencyMs: number) => void;
@@ -24,7 +25,7 @@ class WebSocketManager {
   private static instance: WebSocketManager | null = null;
 
   private ws: WebSocket | null = null;
-  private backendUrl: string = "ws://localhost:8000/ws";
+  private backendUrl: string = getWsBaseUrl();
   private binanceFallbackUrl: string =
     "wss://stream.binance.com:9443/stream?streams=btcusdt@trade/ethusdt@trade/solusdt@trade/bnbusdt@trade/dogeusdt@trade/xrpusdt@trade/adausdt@trade/avaxusdt@trade/linkusdt@trade/nearusdt@trade";
 
@@ -97,7 +98,7 @@ class WebSocketManager {
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
-      this.setStatus("CONNECTED");
+      this.setStatus(this.isUsingFallback ? "DIRECT_FALLBACK" : "CONNECTED");
       this.startHeartbeat();
 
       // If backend, send subscriptions
@@ -222,10 +223,14 @@ class WebSocketManager {
       }
 
       // 5-second staleness rule
-      if (this.status === "CONNECTED" && this.lastTickTimeMs > 0 && elapsedSinceTick > 5000) {
+      if (
+        (this.status === "CONNECTED" || this.status === "DIRECT_FALLBACK") &&
+        this.lastTickTimeMs > 0 &&
+        elapsedSinceTick > 5000
+      ) {
         this.setStatus("STALE");
       } else if (this.status === "STALE" && elapsedSinceTick <= 5000) {
-        this.setStatus("CONNECTED");
+        this.setStatus(this.isUsingFallback ? "DIRECT_FALLBACK" : "CONNECTED");
       }
     }, 1000);
   }
@@ -350,7 +355,7 @@ class WebSocketManager {
 
       const targetUrl = useDirectFallback
         ? `wss://stream.binance.com:9443/ws/${cleanSymbol.toLowerCase()}@depth20@100ms`
-        : `ws://localhost:8000/ws/book/${cleanSymbol}`;
+        : getWsBookUrl(cleanSymbol);
 
       try {
         ws = new WebSocket(targetUrl);

@@ -217,13 +217,35 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+ALLOWED_ORIGINS = [o.strip() for o in raw_origins.split(",") if o.strip()]
+
+if ENVIRONMENT == "production":
+    if not ALLOWED_ORIGINS or any("*" in o for o in ALLOWED_ORIGINS):
+        raise RuntimeError(
+            "FATAL: In production mode, ALLOWED_ORIGINS must be set to explicit domains and cannot contain '*'. "
+            f"Configured ALLOWED_ORIGINS: {ALLOWED_ORIGINS}"
+        )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+
+def validate_ws_origin(websocket: WebSocket) -> bool:
+    """Validates incoming WebSocket Origin header against configured ALLOWED_ORIGINS."""
+    origin = websocket.headers.get("origin")
+    if not origin:
+        # In development, local programmatic clients/benchmarks without Origin are allowed
+        return ENVIRONMENT != "production"
+    clean_origin = origin.rstrip("/")
+    allowed_clean = [o.rstrip("/") for o in ALLOWED_ORIGINS]
+    return clean_origin in allowed_clean or "*" in allowed_clean
 
 
 # ==========================================
@@ -339,6 +361,10 @@ async def websocket_endpoint(websocket: WebSocket):
     Real-time high-throughput normalized tick stream.
     Supports client subscription to specific symbols or all symbols.
     """
+    if not validate_ws_origin(websocket):
+        await websocket.close(code=1008, reason="Policy Violation: Disallowed Origin")
+        return
+
     await websocket.accept()
     state.active_clients.add(websocket)
     state.client_subscriptions[websocket] = set()  # empty means all symbols
@@ -411,6 +437,10 @@ async def websocket_book_endpoint(websocket: WebSocket, symbol: str):
     """
     Real-time top 20 order book stream with spread, mid-price, and imbalance metrics.
     """
+    if not validate_ws_origin(websocket):
+        await websocket.close(code=1008, reason="Policy Violation: Disallowed Origin")
+        return
+
     await websocket.accept()
     symbol_clean = symbol.upper().replace("/", "")
 
