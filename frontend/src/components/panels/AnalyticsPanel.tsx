@@ -53,7 +53,7 @@ interface VolTargetData {
 }
 
 export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ symbol, defaultTab = "VOL" }) => {
-  const { activeSymbol, connectionStatus } = useTerminalStore();
+  const { activeSymbol, connectionStatus, activePanelFunction } = useTerminalStore();
   const targetSymbol = (symbol || activeSymbol).toUpperCase();
 
   const [tab, setTab] = useState<"VOL" | "BT">(defaultTab);
@@ -63,6 +63,20 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ symbol, defaultT
   const [error, setError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (defaultTab) {
+      setTab(defaultTab);
+    }
+  }, [defaultTab]);
+
+  useEffect(() => {
+    if (activePanelFunction === "BT") {
+      setTab("BT");
+    } else if (activePanelFunction === "VOL") {
+      setTab("VOL");
+    }
+  }, [activePanelFunction]);
 
   useEffect(() => {
     let isMounted = true;

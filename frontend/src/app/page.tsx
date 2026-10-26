@@ -38,8 +38,9 @@ export default function TerminalPage() {
     }
 
     if (panelType && layoutRef.current) {
-      const title = symbol ? `${symbol} ${action}` : action;
-      layoutRef.current.openOrFocusTab(panelType, symbol, title);
+      const cleanTicker = symbol ? symbol.replace(/USDT$/, "") : "";
+      const title = symbol ? `${cleanTicker} ${action}` : action;
+      layoutRef.current.openOrFocusTab(panelType, symbol, title, action);
     }
   };
 

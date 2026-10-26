@@ -44,8 +44,45 @@ export const TimeAndSalesPanel: React.FC<TimeAndSalesPanelProps> = ({ symbol }) 
 
   useEffect(() => {
     lastPriceRef.current = null;
+    let isMounted = true;
+
+    // Instantly populate tape with last 50 executed trades from Binance REST
+    const fetchRecentTrades = async () => {
+      try {
+        const res = await fetch(`https://api.binance.com/api/v3/trades?symbol=${targetSymbol}&limit=50`);
+        if (res.ok && isMounted) {
+          const raw = await res.json();
+          const initialTrades: TradeTapeItem[] = raw.map((t: { id: number; price: string; qty: string; time: number; isBuyerMaker: boolean }) => {
+            const price = parseFloat(t.price);
+            const qty = parseFloat(t.qty);
+            const side: "BUY" | "SELL" = t.isBuyerMaker ? "SELL" : "BUY";
+            return {
+              venue: "BINANCE",
+              symbol: targetSymbol,
+              price,
+              qty,
+              exch_ts_ms: Number(t.time),
+              recv_ts_ms: Number(t.time),
+              id: `${t.id || t.time}-${Math.random()}`,
+              side,
+              notional: price * qty,
+            };
+          }).reverse();
+
+          setTradesBySymbol((prev) => ({
+            ...prev,
+            [targetSymbol]: initialTrades,
+          }));
+        }
+      } catch {
+        // Continue with streaming
+      }
+    };
+
+    fetchRecentTrades();
 
     const unsubscribe = wsManager.subscribeTicks((ticks: Tick[]) => {
+      if (!isMounted) return;
       const relevant = ticks.filter((t) => t.symbol.toUpperCase() === targetSymbol);
       if (relevant.length === 0) return;
 
@@ -77,7 +114,10 @@ export const TimeAndSalesPanel: React.FC<TimeAndSalesPanelProps> = ({ symbol }) 
       });
     });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [targetSymbol]);
 
   const isStale = connectionStatus === "STALE";
