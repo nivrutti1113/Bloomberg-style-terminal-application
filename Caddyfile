@@ -1,0 +1,50 @@
+# ==============================================================================
+# Caddy Reverse Proxy Configuration (Automated HTTPS + WSS Termination)
+# ==============================================================================
+# Replace terminal.yourdomain.com with your verified domain.
+# Caddy automatically provisions and renews Let's Encrypt TLS certificates.
+
+{
+    admin off
+}
+
+terminal.yourdomain.com {
+    encode gzip zstd
+
+    # WebSocket Stream & Book Depth Proxying
+    @websockets {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    handle @websockets {
+        reverse_proxy backend:8000
+    }
+
+    # Backend API Endpoints (Candles, Metrics, Venues, Analytics, Health)
+    handle /prices* {
+        reverse_proxy backend:8000
+    }
+    handle /candles* {
+        reverse_proxy backend:8000
+    }
+    handle /metrics* {
+        reverse_proxy backend:8000
+    }
+    handle /venues* {
+        reverse_proxy backend:8000
+    }
+    handle /analytics/* {
+        reverse_proxy backend:8000
+    }
+    handle /health* {
+        reverse_proxy backend:8000
+    }
+    handle /ready* {
+        reverse_proxy backend:8000
+    }
+
+    # Frontend Next.js Application
+    handle {
+        reverse_proxy frontend:3000
+    }
+}

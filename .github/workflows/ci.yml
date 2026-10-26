@@ -61,3 +61,43 @@ jobs:
         run: |
           cd frontend
           npm run build
+
+  docker-smoke-test:
+    name: Docker Build & Compose Smoke Test
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-check]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and Start Compose Stack (CI Test Mode)
+        env:
+          TEST_MODE: "true"
+          ENVIRONMENT: "development"
+        run: |
+          docker compose build
+          docker compose up -d
+
+      - name: Wait for Backend /ready Check
+        run: |
+          echo "Polling http://localhost:8000/ready..."
+          for i in {1..30}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/ready || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "Backend is ready! Status: $STATUS"
+              curl -s http://localhost:8000/ready
+              exit 0
+            fi
+            echo "Attempt $i: status $STATUS, waiting 2s..."
+            sleep 2
+          done
+          echo "ERROR: Backend did not become ready within 60s"
+          docker compose logs backend
+          exit 1
+
+      - name: Smoke Test Frontend HTTP
+        run: |
+          curl -f http://localhost:3000/ || exit 1
+
+      - name: Teardown Compose Stack
+        if: always()
+        run: docker compose down -v
