@@ -53,30 +53,18 @@ interface VolTargetData {
 }
 
 export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ symbol, defaultTab = "VOL" }) => {
-  const { activeSymbol, connectionStatus, activePanelFunction } = useTerminalStore();
+  const { activeSymbol, connectionStatus } = useTerminalStore();
   const targetSymbol = (symbol || activeSymbol).toUpperCase();
 
-  const [tab, setTab] = useState<"VOL" | "BT">(defaultTab);
+  const [userTab, setUserTab] = useState<"VOL" | "BT" | null>(null);
+  const tab: "VOL" | "BT" = userTab ?? defaultTab;
+
   const [harData, setHarData] = useState<HarData | null>(null);
   const [btData, setBtData] = useState<VolTargetData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  useEffect(() => {
-    if (defaultTab) {
-      setTab(defaultTab);
-    }
-  }, [defaultTab]);
-
-  useEffect(() => {
-    if (activePanelFunction === "BT") {
-      setTab("BT");
-    } else if (activePanelFunction === "VOL") {
-      setTab("VOL");
-    }
-  }, [activePanelFunction]);
 
   useEffect(() => {
     let isMounted = true;
@@ -279,7 +267,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ symbol, defaultT
 
         <div className="flex items-center gap-1 text-[10px]">
           <button
-            onClick={() => setTab("VOL")}
+            onClick={() => setUserTab("VOL")}
             className={`px-2 py-0.5 border ${
               tab === "VOL"
                 ? "bg-[#FFB000] text-black font-bold border-[#FFB000]"
@@ -289,7 +277,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ symbol, defaultT
             VOL (HAR-RV FORECAST)
           </button>
           <button
-            onClick={() => setTab("BT")}
+            onClick={() => setUserTab("BT")}
             className={`px-2 py-0.5 border ${
               tab === "BT"
                 ? "bg-[#FFB000] text-black font-bold border-[#FFB000]"
