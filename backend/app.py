@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, List, Optional, Set
 
 import numpy as np
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -138,8 +138,12 @@ class TerminalState:
     def __init__(self):
         self.prices: Dict[str, dict] = {}
         self.latencies = collections.deque(maxlen=2000)
+        self.feed_latencies = collections.deque(maxlen=2000)
+        self.pipeline_latencies = collections.deque(maxlen=2000)
         self.tick_timestamps = collections.deque(maxlen=10000)
         self.total_ticks = 0
+        self.conflated_ticks_count = 0
+        self.last_tick_time = 0
         self.start_time = time.time()
         self.active_clients: Set[WebSocket] = set()
         self.client_subscriptions: Dict[WebSocket, Set[str]] = {}
@@ -147,11 +151,13 @@ class TerminalState:
     def record_tick(self, tick: Tick):
         self.total_ticks += 1
         now_ms = int(time.time() * 1000)
+        self.last_tick_time = now_ms
         self.tick_timestamps.append(now_ms)
 
-        # Latency in ms: difference between exchange event timestamp and server receive time
-        latency = max(0, tick.recv_ts_ms - tick.exch_ts_ms)
-        self.latencies.append(latency)
+        # Feed latency: exchange matching timestamp to server ingestion (includes internet transit + clock skew)
+        feed_lat = max(0, tick.recv_ts_ms - tick.exch_ts_ms)
+        self.latencies.append(feed_lat)
+        self.feed_latencies.append(feed_lat)
 
         # Update symbol price state
         current = self.prices.get(tick.symbol, {})
@@ -186,23 +192,25 @@ class TerminalState:
 
         ticks_per_sec = len(self.tick_timestamps)
 
-        if self.latencies:
-            arr = np.array(self.latencies)
-            p50 = float(np.percentile(arr, 50))
-            p99 = float(np.percentile(arr, 99))
-        else:
-            p50 = 0.0
-            p99 = 0.0
+        feed_p50 = float(np.percentile(self.feed_latencies, 50)) if self.feed_latencies else 0.0
+        feed_p99 = float(np.percentile(self.feed_latencies, 99)) if self.feed_latencies else 0.0
+        pipe_p50 = float(np.percentile(self.pipeline_latencies, 50)) if self.pipeline_latencies else 0.0
+        pipe_p99 = float(np.percentile(self.pipeline_latencies, 99)) if self.pipeline_latencies else 0.0
 
         return {
             "ticks_per_sec": ticks_per_sec,
             "total_ticks": self.total_ticks,
-            "p50_latency_ms": round(p50, 1),
-            "p99_latency_ms": round(p99, 1),
+            "conflated_ticks": self.conflated_ticks_count,
+            "p50_latency_ms": round(feed_p50, 1),
+            "p99_latency_ms": round(feed_p99, 1),
+            "feed_latency_ms": {"p50": round(feed_p50, 1), "p99": round(feed_p99, 1)},
+            "pipeline_latency_ms": {"p50": round(pipe_p50, 2), "p99": round(pipe_p99, 2)},
             "active_ws_connections": len(self.active_clients),
             "feed_status": "CONNECTED" if feed_connected else "DISCONNECTED",
             "uptime_seconds": int(time.time() - self.start_time),
             "timestamp_ms": now_ms,
+            "storage_driver": "TIMESCALE" if db_mgr.is_timescale else "SQLITE_DEV_FALLBACK",
+            "pubsub_driver": "REDIS" if pubsub_mgr.use_redis else "IN_MEMORY_DEV_FALLBACK",
         }
 
 
@@ -345,6 +353,71 @@ async def get_venues():
     }
 
 
+MAX_CLIENTS = int(os.getenv("MAX_CLIENTS", "250"))
+MAX_SUBSCRIPTIONS = int(os.getenv("MAX_SUBSCRIPTIONS", "25"))
+MAX_MESSAGE_BYTES = 16384  # 16 KB
+
+# Rate Limiting & Analytics Cache
+ANALYTICS_RATE_LIMIT_PER_MIN = int(os.getenv("ANALYTICS_RATE_LIMIT_PER_MIN", "10"))
+_analytics_request_times: Dict[str, collections.deque] = collections.defaultdict(
+    lambda: collections.deque(maxlen=100)
+)
+_analytics_cache: Dict[str, tuple[float, dict]] = {}
+ANALYTICS_CACHE_TTL_SEC = 60.0
+
+
+def check_rate_limit(client_ip: str, limit_per_min: int = ANALYTICS_RATE_LIMIT_PER_MIN) -> bool:
+    now = time.time()
+    q = _analytics_request_times[client_ip]
+    while q and (now - q[0]) > 60.0:
+        q.popleft()
+    if len(q) >= limit_per_min:
+        return False
+    q.append(now)
+    return True
+
+
+def get_allowed_symbols() -> Set[str]:
+    return set(binance_adapter.symbols) | set(nse_adapter.symbols)
+
+
+@app.get("/health")
+async def health_check():
+    """Liveness probe: Fast, low overhead check confirming the web worker is running."""
+    return {
+        "status": "healthy",
+        "uptime_seconds": int(time.time() - state.start_time),
+        "timestamp_ms": int(time.time() * 1000),
+    }
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Readiness probe: Confirms market data feed, database, and message bus are fully operational."""
+    now_ms = int(time.time() * 1000)
+    feed_healthy = (
+        state.last_tick_time > 0 and (now_ms - state.last_tick_time) < 15000
+    ) or os.getenv("TEST_MODE") == "true"
+    db_healthy = await db_mgr.is_healthy()
+    pubsub_healthy = await pubsub_mgr.is_healthy()
+
+    ready = feed_healthy and db_healthy and pubsub_healthy
+    response_data = {
+        "ready": ready,
+        "feed_healthy": feed_healthy,
+        "last_tick_age_ms": now_ms - state.last_tick_time if state.last_tick_time > 0 else None,
+        "db_healthy": db_healthy,
+        "pubsub_healthy": pubsub_healthy,
+        "storage_driver": "TIMESCALE" if db_mgr.is_timescale else "SQLITE_DEV_FALLBACK",
+        "pubsub_driver": "REDIS" if pubsub_mgr.use_redis else "IN_MEMORY_DEV_FALLBACK",
+        "timestamp_ms": now_ms,
+    }
+
+    if not ready:
+        return JSONResponse(status_code=503, content=response_data)
+    return response_data
+
+
 @app.get("/candles")
 async def get_candles(
     symbol: str = Query("BTCUSDT", description="Market symbol, e.g. BTCUSDT"),
@@ -375,30 +448,64 @@ async def get_candles(
 
 
 @app.get("/analytics/har/{symbol}")
-async def get_har_analytics(symbol: str):
+async def get_har_analytics(symbol: str, request: Request):
     """
     HAR (Heterogeneous Autoregressive) Realized Volatility forecast.
-    Wired directly to quantitative research engine.
+    Wired directly to quantitative research engine with rate limiting and 60s TTL caching.
     """
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(client_ip):
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Rate limit exceeded (10 requests/minute). Please retry later."},
+            headers={"Retry-After": "60"},
+        )
+
     symbol_clean = symbol.upper().replace("/", "")
+    cache_key = f"har:{symbol_clean}"
+    now = time.time()
+    if cache_key in _analytics_cache:
+        cached_ts, cached_res = _analytics_cache[cache_key]
+        if (now - cached_ts) < ANALYTICS_CACHE_TTL_SEC:
+            return cached_res
+
     try:
         df = await fetch_daily_data(symbol_clean, limit=180)
-        return calculate_har_model(df, symbol_clean)
+        res = calculate_har_model(df, symbol_clean)
+        _analytics_cache[cache_key] = (now, res)
+        return res
     except Exception as e:
         logger.error(f"Error computing HAR analytics for {symbol_clean}: {e}")
         return JSONResponse(status_code=500, content={"error": f"Failed to compute HAR model: {str(e)}"})
 
 
 @app.get("/analytics/voltarget/{symbol}")
-async def get_voltarget_analytics(symbol: str):
+async def get_voltarget_analytics(symbol: str, request: Request):
     """
     Volatility-Targeting backtest metrics, Sharpe ratio, drawdown, and equity curves.
-    Wired directly to quantitative research backtest engine.
+    Wired directly to quantitative research backtest engine with rate limiting and 60s caching.
     """
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(client_ip):
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Rate limit exceeded (10 requests/minute). Please retry later."},
+            headers={"Retry-After": "60"},
+        )
+
     symbol_clean = symbol.upper().replace("/", "")
+    cache_key = f"voltarget:{symbol_clean}"
+    now = time.time()
+    if cache_key in _analytics_cache:
+        cached_ts, cached_res = _analytics_cache[cache_key]
+        if (now - cached_ts) < ANALYTICS_CACHE_TTL_SEC:
+            return cached_res
+
     try:
         df = await fetch_daily_data(symbol_clean, limit=180)
-        return calculate_vol_target_backtest(df, symbol_clean, target_vol_annual=0.15)
+        res = calculate_vol_target_backtest(df, symbol_clean, target_vol_annual=0.15)
+        _analytics_cache[cache_key] = (now, res)
+        return res
     except Exception as e:
         logger.error(f"Error computing VolTarget analytics for {symbol_clean}: {e}")
         return JSONResponse(status_code=500, content={"error": f"Failed to compute VolTarget backtest: {str(e)}"})
@@ -412,40 +519,76 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     Real-time high-throughput normalized tick stream.
     Supports client subscription to specific symbols or all symbols.
+    Features: Origin validation, Max client enforcement, Max subscription limits,
+    Backpressure conflation (dropping stale backlog per symbol rather than disconnecting),
+    and per-socket write timeouts.
     """
     if not validate_ws_origin(websocket):
         await websocket.close(code=1008, reason="Policy Violation: Disallowed Origin")
         return
 
+    if len(state.active_clients) >= MAX_CLIENTS:
+        await websocket.close(code=1008, reason="Max clients reached")
+        return
+
     await websocket.accept()
     state.active_clients.add(websocket)
-    state.client_subscriptions[websocket] = set()  # empty means all symbols
+    state.client_subscriptions[websocket] = set()
 
     queue = pubsub_mgr.subscribe()
+    conflation_buffer: Dict[str, dict] = {}
 
     async def client_reader():
         try:
             while True:
                 text = await websocket.receive_text()
+                if len(text) > MAX_MESSAGE_BYTES:
+                    await websocket.close(code=1009, reason="Message too large")
+                    break
+
                 try:
                     msg = json.loads(text)
                     action = msg.get("action")
                     if action == "subscribe":
-                        symbols = {s.upper() for s in msg.get("symbols", [])}
-                        state.client_subscriptions[websocket].update(symbols)
-                        await websocket.send_json({"type": "subscribed", "symbols": list(state.client_subscriptions[websocket])})
+                        req_symbols = [s.upper() for s in msg.get("symbols", [])]
+                        allowed = get_allowed_symbols()
+                        invalid = [s for s in req_symbols if s not in allowed]
+                        if invalid:
+                            await websocket.send_json({
+                                "type": "error",
+                                "code": 4400,
+                                "message": f"Unknown symbols: {invalid}",
+                                "allowed_symbols": sorted(list(allowed)),
+                            })
+                            continue
+
+                        current_subs = state.client_subscriptions.get(websocket, set())
+                        if len(current_subs) + len(req_symbols) > MAX_SUBSCRIPTIONS:
+                            await websocket.send_json({
+                                "type": "error",
+                                "code": 4429,
+                                "message": f"Subscription limit exceeded. Maximum {MAX_SUBSCRIPTIONS} symbols allowed.",
+                            })
+                            continue
+
+                        current_subs.update(req_symbols)
+                        await websocket.send_json({"type": "subscribed", "symbols": list(current_subs)})
+
                     elif action == "unsubscribe":
-                        symbols = {s.upper() for s in msg.get("symbols", [])}
-                        state.client_subscriptions[websocket].difference_update(symbols)
-                        await websocket.send_json({"type": "unsubscribed", "symbols": list(symbols)})
+                        req_symbols = {s.upper() for s in msg.get("symbols", [])}
+                        current_subs = state.client_subscriptions.get(websocket, set())
+                        current_subs.difference_update(req_symbols)
+                        await websocket.send_json({"type": "unsubscribed", "symbols": list(current_subs)})
+
                     elif action == "ping" or msg.get("type") == "ping":
                         await websocket.send_json({"type": "pong", "ts": int(time.time() * 1000)})
+
                 except json.JSONDecodeError:
-                    pass
+                    await websocket.send_json({"type": "error", "code": 4400, "message": "Invalid JSON format"})
         except WebSocketDisconnect:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"WS reader error: {e}")
 
     async def client_writer():
         try:
@@ -453,18 +596,42 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.send_json({"type": "snapshot", "data": state.prices})
 
             while True:
+                # Conflation under backpressure: If queue accumulates > 50 messages,
+                # conflate backlog into the latest tick per symbol to prevent lag & disconnects
+                if queue.qsize() > 50:
+                    while not queue.empty():
+                        try:
+                            item = queue.get_nowait()
+                            t_data = item.get("data")
+                            if t_data and "symbol" in t_data:
+                                conflation_buffer[t_data["symbol"]] = item
+                                state.conflated_ticks_count += 1
+                        except asyncio.QueueEmpty:
+                            break
+
+                    for sym, conflated_item in list(conflation_buffer.items()):
+                        client_subs = state.client_subscriptions.get(websocket, set())
+                        if not client_subs or sym in client_subs:
+                            t_send_start = time.time()
+                            await asyncio.wait_for(websocket.send_json(conflated_item), timeout=0.5)
+                            state.pipeline_latencies.append((time.time() - t_send_start) * 1000)
+                    conflation_buffer.clear()
+
+                # Normal tick streaming
                 payload = await queue.get()
                 tick_data = payload.get("data")
                 if tick_data:
                     symbol = tick_data.get("symbol")
                     client_subs = state.client_subscriptions.get(websocket, set())
-                    # If client subscribed to specific symbols, filter; otherwise send all
                     if not client_subs or symbol in client_subs:
-                        await websocket.send_json(payload)
-        except WebSocketDisconnect:
+                        t_send_start = time.time()
+                        await asyncio.wait_for(websocket.send_json(payload), timeout=0.5)
+                        state.pipeline_latencies.append((time.time() - t_send_start) * 1000)
+
+        except (WebSocketDisconnect, asyncio.TimeoutError):
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"WS writer error: {e}")
 
     reader_task = asyncio.create_task(client_reader())
     writer_task = asyncio.create_task(client_writer())
@@ -493,7 +660,12 @@ async def websocket_book_endpoint(websocket: WebSocket, symbol: str):
         await websocket.close(code=1008, reason="Policy Violation: Disallowed Origin")
         return
 
+    if len(state.active_clients) >= MAX_CLIENTS:
+        await websocket.close(code=1008, reason="Max clients reached")
+        return
+
     await websocket.accept()
+    state.active_clients.add(websocket)
     symbol_clean = symbol.upper().replace("/", "")
 
     book = await book_hub.ensure_started(symbol_clean)
@@ -516,15 +688,16 @@ async def websocket_book_endpoint(websocket: WebSocket, symbol: str):
             }
             await websocket.send_json(snapshot)
 
-        # Stream book frames to client
+        # Stream book frames to client with timeout
         while True:
             payload = await queue.get()
-            await websocket.send_json(payload)
-    except WebSocketDisconnect:
+            await asyncio.wait_for(websocket.send_json(payload), timeout=0.5)
+    except (WebSocketDisconnect, asyncio.TimeoutError):
         pass
     except Exception as e:
         logger.error(f"Error in book websocket for {symbol_clean}: {e}")
     finally:
+        state.active_clients.discard(websocket)
         book.unsubscribe(queue)
 
 
