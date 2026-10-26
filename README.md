@@ -66,3 +66,32 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
   - Maximum Drawdown (MDD) calculation and comparison.
   - Annual return and turnover metrics accounting for transaction friction (5.0 bps).
   - Interactive dual equity curve chart (Vol-Target Strategy vs Buy-and-Hold benchmark normalized to 100).
+
+---
+
+## Performance & Latency Specifications
+
+### Latency Metrics Defined
+- **`feed_latency_ms`**: Measured as `tick.recv_ts_ms - tick.exch_ts_ms`. Represents the end-to-end elapsed duration from Binance's matching engine event creation timestamp to server receipt. This incorporates international internet fiber transit (e.g. Tokyo/EU exchange servers to local node), OS network stack buffering, and NTP clock skew.
+- **`pipeline_latency_ms`**: Measured as the internal server queuing and serialization duration from local packet receipt to client WebSocket frame transmission. Measures internal server processing without external internet transit.
+
+### Measured Concurrency Benchmarks
+*Tested on October 26, 2026 (Environment: Windows 11 / Python 3.14 / Uvicorn / Asyncio Conflation Engine)*:
+
+| Concurrent Clients | Disconnect Rate | Aggregate Delivery | Throughput / Client | Server Pipeline p50 | Server Pipeline p99 | Conflated Frames |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **10 Clients** | **0.0%** (10/10) | 61.2 ticks/s | 6.1 ticks/s | 0.20 ms | 0.78 ms | 0 (No backpressure) |
+| **100 Clients** | **0.0%** (100/100) | 2,966.8 ticks/s | 29.7 ticks/s | 0.12 ms | 0.77 ms | 76,200 conflated |
+| **250 Clients** | **0.0%** (250/250) | 1,425.9 ticks/s | 5.7 ticks/s | 0.13 ms | 2.31 ms | 21,533 conflated |
+
+*Note on Backpressure Conflation: When slow client sockets accumulate an internal queue backlog exceeding 50 frames, the server conflates trades by symbol to deliver the freshest state rather than disconnecting clients or introducing multi-second lag.*
+
+---
+
+## Architectural Drivers (Production vs Dev Fallback)
+
+- **TimescaleDB**: Used in Docker/Production via `TIMESCALE_URL` (`postgresql://...`). Automatically provisions hypertables, automated 7-day retention policy (`add_retention_policy`), and continuous aggregates (`candles_1m`, `candles_5m`, `candles_1h`, `candles_1d`) with automated refresh policies.
+- **SQLite Dev Fallback**: When PostgreSQL/TimescaleDB is absent in local standalone dev, backend seamlessly falls back to `ticks.db` using `aiosqlite` with batched inserts.
+- **Redis Pub/Sub**: Used in Docker/Production via `REDIS_URL` (`redis://...`) for horizontal multi-worker WebSocket fanout on channel `market:ticks`.
+- **In-Memory Bus Dev Fallback**: When Redis is absent, uses an asynchronous queue fanout bus.
+- Status of active storage and pub/sub drivers is exposed transparently on `GET /ready` and `GET /metrics`.
