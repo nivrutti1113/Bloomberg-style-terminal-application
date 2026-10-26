@@ -19,9 +19,10 @@ logger = logging.getLogger("terminal_db")
 
 TIMESCALE_URL = os.getenv("TIMESCALE_URL", os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/market_data"))
 SQLITE_DB_PATH = os.getenv("SQLITE_DB_PATH", "ticks.db")
+RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "7"))
 
-# DDL for TimescaleDB Hypertables and Continuous Aggregates
-TIMESCALE_DDL = """
+# DDL for TimescaleDB Hypertables, Retention Policies, and Continuous Aggregates
+TIMESCALE_DDL = f"""
 CREATE TABLE IF NOT EXISTS ticks (
     time TIMESTAMPTZ NOT NULL,
     venue VARCHAR(16) NOT NULL,
@@ -35,6 +36,118 @@ CREATE TABLE IF NOT EXISTS ticks (
 SELECT create_hypertable('ticks', 'time', if_not_exists => TRUE, migrate_data => TRUE);
 
 CREATE INDEX IF NOT EXISTS idx_ticks_symbol_time ON ticks (symbol, time DESC);
+
+-- Automated Data Retention Policy ({RETENTION_DAYS} days for raw tick data)
+DO $$
+BEGIN
+    PERFORM add_retention_policy('ticks', INTERVAL '{RETENTION_DAYS} days', if_not_exists => TRUE);
+EXCEPTION WHEN others THEN
+    NULL;
+END $$;
+
+-- 1-Minute Continuous Aggregate
+CREATE MATERIALIZED VIEW IF NOT EXISTS candles_1m
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 minute', time) AS bucket,
+    symbol,
+    FIRST(price, time) AS open,
+    MAX(price) AS high,
+    MIN(price) AS low,
+    LAST(price, time) AS close,
+    SUM(qty) AS volume
+FROM ticks
+GROUP BY bucket, symbol
+WITH NO DATA;
+
+DO $$
+BEGIN
+    PERFORM add_continuous_aggregate_policy('candles_1m',
+        start_offset => INTERVAL '1 hour',
+        end_offset => INTERVAL '1 minute',
+        schedule_interval => INTERVAL '1 minute',
+        if_not_exists => TRUE);
+EXCEPTION WHEN others THEN
+    NULL;
+END $$;
+
+-- 5-Minute Continuous Aggregate
+CREATE MATERIALIZED VIEW IF NOT EXISTS candles_5m
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('5 minutes', time) AS bucket,
+    symbol,
+    FIRST(price, time) AS open,
+    MAX(price) AS high,
+    MIN(price) AS low,
+    LAST(price, time) AS close,
+    SUM(qty) AS volume
+FROM ticks
+GROUP BY bucket, symbol
+WITH NO DATA;
+
+DO $$
+BEGIN
+    PERFORM add_continuous_aggregate_policy('candles_5m',
+        start_offset => INTERVAL '6 hours',
+        end_offset => INTERVAL '5 minutes',
+        schedule_interval => INTERVAL '5 minutes',
+        if_not_exists => TRUE);
+EXCEPTION WHEN others THEN
+    NULL;
+END $$;
+
+-- 1-Hour Continuous Aggregate
+CREATE MATERIALIZED VIEW IF NOT EXISTS candles_1h
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 hour', time) AS bucket,
+    symbol,
+    FIRST(price, time) AS open,
+    MAX(price) AS high,
+    MIN(price) AS low,
+    LAST(price, time) AS close,
+    SUM(qty) AS volume
+FROM ticks
+GROUP BY bucket, symbol
+WITH NO DATA;
+
+DO $$
+BEGIN
+    PERFORM add_continuous_aggregate_policy('candles_1h',
+        start_offset => INTERVAL '1 day',
+        end_offset => INTERVAL '1 hour',
+        schedule_interval => INTERVAL '1 hour',
+        if_not_exists => TRUE);
+EXCEPTION WHEN others THEN
+    NULL;
+END $$;
+
+-- 1-Day Continuous Aggregate
+CREATE MATERIALIZED VIEW IF NOT EXISTS candles_1d
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 day', time) AS bucket,
+    symbol,
+    FIRST(price, time) AS open,
+    MAX(price) AS high,
+    MIN(price) AS low,
+    LAST(price, time) AS close,
+    SUM(qty) AS volume
+FROM ticks
+GROUP BY bucket, symbol
+WITH NO DATA;
+
+DO $$
+BEGIN
+    PERFORM add_continuous_aggregate_policy('candles_1d',
+        start_offset => INTERVAL '7 days',
+        end_offset => INTERVAL '1 day',
+        schedule_interval => INTERVAL '1 day',
+        if_not_exists => TRUE);
+EXCEPTION WHEN others THEN
+    NULL;
+END $$;
 """
 
 SQLITE_DDL = """
@@ -245,6 +358,33 @@ class DatabaseManager:
             except Exception as e:
                 logger.error(f"Error fetching DB candles: {e}")
         return candles
+
+    def get_status(self) -> dict:
+        return {
+            "driver": "TIMESCALE" if self.is_timescale else "SQLITE_DEV_FALLBACK",
+            "is_timescale": self.is_timescale,
+            "total_inserted": self.total_inserted,
+            "retention_days": RETENTION_DAYS if self.is_timescale else None,
+            "continuous_aggregates": ["1m", "5m", "1h", "1d"] if self.is_timescale else [],
+            "queue_pending": self._batch_queue.qsize(),
+        }
+
+    async def is_healthy(self) -> bool:
+        if self.is_timescale and self.pool:
+            try:
+                async with self.pool.acquire() as conn:
+                    val = await conn.fetchval("SELECT 1")
+                    return val == 1
+            except Exception:
+                return False
+        elif self._sqlite_conn:
+            try:
+                cur = await self._sqlite_conn.execute("SELECT 1")
+                row = await cur.fetchone()
+                return row is not None and row[0] == 1
+            except Exception:
+                return False
+        return False
 
     async def close(self):
         self._running = False

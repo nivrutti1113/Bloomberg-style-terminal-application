@@ -31,25 +31,54 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 
 # ==========================================
-# Pub/Sub Layer (Redis with In-Memory Fallback)
+# Pub/Sub Layer (Redis with In-Memory Dev Fallback)
 # ==========================================
 class PubSubManager:
+    CHANNEL = "market:ticks"
+
     def __init__(self):
         self.use_redis = False
         self.redis_client = None
         self._subscribers: Set[asyncio.Queue] = set()
+        self._listener_task: Optional[asyncio.Task] = None
+        self._running = False
 
     async def connect(self):
+        self._running = True
         try:
             import redis.asyncio as aioredis
             self.redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
             await self.redis_client.ping()
             self.use_redis = True
-            logger.info(f"Connected to Redis at {REDIS_URL}")
+            logger.info(f"Connected to Redis Pub/Sub at {REDIS_URL}")
+            self._listener_task = asyncio.create_task(self._redis_listener())
         except Exception as e:
             self.use_redis = False
             self.redis_client = None
-            logger.info(f"Redis not available ({e}). Using in-memory broadcast bus.")
+            logger.info(f"Redis not available ({e}). Active Driver: IN-MEMORY BROADCAST BUS (DEV FALLBACK)")
+
+    async def _redis_listener(self):
+        """Listens to Redis tick channel and fans out to all local subscriber queues."""
+        try:
+            pubsub = self.redis_client.pubsub()
+            await pubsub.subscribe(self.CHANNEL)
+            async for raw in pubsub.listen():
+                if not self._running:
+                    break
+                if raw and raw.get("type") == "message":
+                    try:
+                        msg = json.loads(raw["data"])
+                        for queue in list(self._subscribers):
+                            try:
+                                queue.put_nowait(msg)
+                            except asyncio.QueueFull:
+                                pass
+                    except Exception as err:
+                        logger.error(f"Error parsing Redis message: {err}")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"Redis subscriber loop error: {e}")
 
     async def publish(self, channel: str, message: dict):
         if self.use_redis and self.redis_client:
@@ -58,8 +87,8 @@ class PubSubManager:
                 return
             except Exception as e:
                 logger.warning(f"Redis publish failed, falling back to memory: {e}")
-        
-        # Broadcast to local subscribers
+
+        # Local memory bus fallback
         for queue in list(self._subscribers):
             try:
                 queue.put_nowait(message)
@@ -74,9 +103,32 @@ class PubSubManager:
     def unsubscribe(self, queue: asyncio.Queue):
         self._subscribers.discard(queue)
 
+    def get_status(self) -> dict:
+        return {
+            "driver": "REDIS" if self.use_redis else "IN_MEMORY_DEV_FALLBACK",
+            "is_redis": self.use_redis,
+            "active_subscribers": len(self._subscribers),
+        }
+
+    async def is_healthy(self) -> bool:
+        if self.use_redis and self.redis_client:
+            try:
+                await self.redis_client.ping()
+                return True
+            except Exception:
+                return False
+        return True
+
     async def close(self):
+        self._running = False
+        if self._listener_task:
+            self._listener_task.cancel()
+            try:
+                await self._listener_task
+            except asyncio.CancelledError:
+                pass
         if self.redis_client:
-            await self.redis_client.aclose()
+            await self.redis_client.close()
 
 
 # ==========================================
