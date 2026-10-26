@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+:root {
+  --background: #000000;
+  --foreground: #FFB000;
+}
+
+body {
+  background-color: #000000;
+  color: #FFB000;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ==========================================
+   Bloomberg FlexLayout Terminal Theme Overrides
+   ========================================== */
+.flexlayout__layout {
+  background-color: #000000 !important;
+}
+
+.flexlayout__tabset {
+  background-color: #0A0A0A !important;
+  border: 1px solid #2A2A2A !important;
+  border-radius: 0px !important;
+  box-shadow: none !important;
+}
+
+.flexlayout__tabset-selected {
+  border: 1px solid #3A3A3A !important;
+}
+
+.flexlayout__tabset_header {
+  background-color: #141414 !important;
+  border-bottom: 1px solid #2A2A2A !important;
+  height: 24px !important;
+  min-height: 24px !important;
+}
+
+.flexlayout__tab_button {
+  background-color: #141414 !important;
+  color: #9A9A9A !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 11px !important;
+  line-height: 20px !important;
+  padding: 0 8px !important;
+  border-right: 1px solid #2A2A2A !important;
+  border-top: 2px solid transparent !important;
+  border-radius: 0px !important;
+  box-shadow: none !important;
+  letter-spacing: 0.02em;
+}
+
+.flexlayout__tab_button:hover {
+  color: #FFB000 !important;
+  background-color: #1A1A1A !important;
+}
+
+.flexlayout__tab_button--selected {
+  background-color: #0A0A0A !important;
+  color: #FFB000 !important;
+  border-top: 2px solid #FFB000 !important;
+  font-weight: 700 !important;
+}
+
+.flexlayout__tab_button_trailing {
+  padding-left: 6px !important;
+  color: #666666 !important;
+}
+
+.flexlayout__tab_button_trailing:hover {
+  color: #FF3B30 !important;
+}
+
+.flexlayout__splitter {
+  background-color: #1A1A1A !important;
+}
+
+.flexlayout__splitter:hover {
+  background-color: #FFB000 !important;
+}
+
+.flexlayout__splitter_drag {
+  background-color: #FFB000 !important;
+  opacity: 0.6 !important;
+}
+
+.flexlayout__tab {
+  background-color: #0A0A0A !important;
+  overflow: hidden;
+}
+
+.flexlayout__tab_toolbar {
+  background-color: #141414 !important;
+}
+
+.flexlayout__tab_toolbar_button {
+  color: #9A9A9A !important;
+}
+
+.flexlayout__tab_toolbar_button:hover {
+  color: #FFB000 !important;
+}
+
+/* ==========================================
+   Dense Custom Scrollbars
+   ========================================== */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0A0A0A;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2A2A2A;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #FFB000;
+}
+
+/* ==========================================
+   Bloomberg Tick Flash Animations
+   ========================================== */
+@keyframes flash-green {
+  0% {
+    background-color: rgba(0, 210, 106, 0.45);
+    color: #FFFFFF;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes flash-red {
+  0% {
+    background-color: rgba(255, 59, 48, 0.45);
+    color: #FFFFFF;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.flash-up {
+  animation: flash-green 300ms ease-out forwards;
+}
+
+.flash-down {
+  animation: flash-red 300ms ease-out forwards;
+}
