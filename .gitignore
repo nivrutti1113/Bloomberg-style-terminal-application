@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.venv/
+env/
+venv/
+
+# Build and Production Artifacts
+.next/
+dist/
+build/
+out/
+
+# Database and Cache Files
+*.db
+*.sqlite
+*.sqlite3
+backend/ticks.db
+ticks.db
+*.wal
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment and Secrets (ALLOW .env.example)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
+# Scratch and Temporary Scripts
+scratch/
+tmp/
+temp/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS Files
+.DS_Store
+Thumbs.db

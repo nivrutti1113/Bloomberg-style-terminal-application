@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+tests/
+scratch/
+*.db
+*.sqlite
+*.sqlite3
+ticks.db
+.env
+.env.*
+!.env.example
+.git/
+.gitignore
+*.log
