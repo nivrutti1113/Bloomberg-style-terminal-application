@@ -96,7 +96,19 @@ jobs:
 
       - name: Smoke Test Frontend HTTP
         run: |
-          curl -f http://localhost:3000/ || exit 1
+          echo "Polling http://localhost:3000/..."
+          for i in {1..30}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/ || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "Frontend is ready! Status: $STATUS"
+              exit 0
+            fi
+            echo "Attempt $i: status $STATUS, waiting 2s..."
+            sleep 2
+          done
+          echo "ERROR: Frontend did not respond with 200 within 60s"
+          docker compose logs frontend
+          exit 1
 
       - name: Teardown Compose Stack
         if: always()
