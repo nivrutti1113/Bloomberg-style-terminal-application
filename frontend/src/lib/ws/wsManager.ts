@@ -9,13 +9,13 @@
  * - Stale detection (>5s without a tick marks data STALE).
  * - High-speed micro-batching via requestAnimationFrame (NEVER setState per tick).
  * - Memory safety: Ring buffers capped at max capacity.
- * - Graceful fallback: If local backend (ws://localhost:8000/ws) is unavailable,
+ * - Graceful fallback: If backend WS is unavailable,
  *   connects directly to Binance public stream (wss://stream.binance.com:9443/stream)
  *   to ensure ZERO fake data at all times.
  */
 
 import { OrderBookData, Tick, WsConnectionStatus } from "@/types/market";
-import { getWsBaseUrl, getWsBookUrl } from "@/config/env";
+import { WS_URL } from "@/lib/config";
 
 type TickListener = (ticks: Tick[]) => void;
 type StatusListener = (status: WsConnectionStatus, latencyMs: number) => void;
@@ -25,7 +25,7 @@ class WebSocketManager {
   private static instance: WebSocketManager | null = null;
 
   private ws: WebSocket | null = null;
-  private backendUrl: string = getWsBaseUrl();
+  private backendUrl: string = `${WS_URL}/ws`;
   private binanceFallbackUrl: string =
     "wss://stream.binance.com:9443/stream?streams=btcusdt@trade/ethusdt@trade/solusdt@trade/bnbusdt@trade/dogeusdt@trade/xrpusdt@trade/adausdt@trade/avaxusdt@trade/linkusdt@trade/nearusdt@trade";
 
@@ -355,7 +355,7 @@ class WebSocketManager {
 
       const targetUrl = useDirectFallback
         ? `wss://stream.binance.com:9443/ws/${cleanSymbol.toLowerCase()}@depth20@100ms`
-        : getWsBookUrl(cleanSymbol);
+        : `${WS_URL}/ws/book/${cleanSymbol}`;
 
       try {
         ws = new WebSocket(targetUrl);

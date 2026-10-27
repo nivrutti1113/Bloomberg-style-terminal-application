@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useTerminalStore } from "@/store/terminalStore";
-import { getApiBaseUrl } from "@/config/env";
+import { API_URL } from "@/lib/config";
 
 interface AnalyticsPanelProps {
   symbol?: string;
@@ -72,7 +72,7 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({ symbol, defaultT
     const fetchAnalytics = async () => {
       try {
         setError(null);
-        const baseUrl = getApiBaseUrl();
+        const baseUrl = API_URL;
         const [harRes, btRes] = await Promise.allSettled([
           fetch(`${baseUrl}/analytics/har/${targetSymbol}`).then((r) => r.json()),
           fetch(`${baseUrl}/analytics/voltarget/${targetSymbol}`).then((r) => r.json()),
