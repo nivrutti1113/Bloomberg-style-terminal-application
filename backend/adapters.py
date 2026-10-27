@@ -56,6 +56,10 @@ class MarketDataAdapter(ABC):
     def is_connected(self) -> bool:
         return self._connected
 
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
     @abstractmethod
     async def start(self, on_tick: Callable[[Tick], None | asyncio.Future]) -> None:
         """Start streaming ticks to callback."""
@@ -97,29 +101,43 @@ class BinanceAdapter(MarketDataAdapter):
         self._on_tick_callback: Optional[Callable[[Tick], None | asyncio.Future]] = None
 
     async def fetch_24h_snapshot(self) -> Dict[str, dict]:
-        """Fetch real 24h ticker statistics from Binance REST API."""
+        """Fetch real 24h ticker statistics from Binance REST API with auto US fallback."""
         snapshots = {}
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                res = await client.get(self.REST_TICKER_URL)
-                if res.status_code == 200:
-                    data = res.json()
-                    for item in data:
-                        sym = item.get("symbol")
-                        if sym in self.symbols:
-                            snapshots[sym] = {
-                                "symbol": sym,
-                                "price": float(item.get("lastPrice", 0.0)),
-                                "change_24h": float(item.get("priceChange", 0.0)),
-                                "change_pct_24h": float(item.get("priceChangePercent", 0.0)),
-                                "high_24h": float(item.get("highPrice", 0.0)),
-                                "low_24h": float(item.get("lowPrice", 0.0)),
-                                "volume_24h": float(item.get("volume", 0.0)),
-                                "quote_volume_24h": float(item.get("quoteVolume", 0.0)),
-                                "open_price": float(item.get("openPrice", 0.0)),
-                            }
-        except Exception as e:
-            logger.warning(f"Could not fetch Binance 24h snapshot: {e}")
+        urls = [self.REST_TICKER_URL]
+        if "binance.com" in self.REST_TICKER_URL:
+            urls.append("https://api.binance.us/api/v3/ticker/24hr")
+
+        for url in urls:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    res = await client.get(url)
+                    if res.status_code == 200:
+                        data = res.json()
+                        for item in data:
+                            sym = item.get("symbol")
+                            if sym in self.symbols:
+                                snapshots[sym] = {
+                                    "symbol": sym,
+                                    "price": float(item.get("lastPrice", 0.0)),
+                                    "change_24h": float(item.get("priceChange", 0.0)),
+                                    "change_pct_24h": float(item.get("priceChangePercent", 0.0)),
+                                    "high_24h": float(item.get("highPrice", 0.0)),
+                                    "low_24h": float(item.get("lowPrice", 0.0)),
+                                    "volume_24h": float(item.get("volume", 0.0)),
+                                    "quote_volume_24h": float(item.get("quoteVolume", 0.0)),
+                                    "open_price": float(item.get("openPrice", 0.0)),
+                                }
+                        if snapshots:
+                            if "binance.us" in url:
+                                logger.info("Using Binance US endpoint (api.binance.us) due to US region.")
+                                self.REST_TICKER_URL = "https://api.binance.us/api/v3/ticker/24hr"
+                                self.WS_STREAM_URL = "wss://stream.binance.us:9443/stream"
+                            break
+                    elif res.status_code == 451:
+                        logger.warning("Binance.com REST geo-blocked (HTTP 451). Trying Binance US...")
+                        continue
+            except Exception as e:
+                logger.warning(f"Could not fetch Binance 24h snapshot from {url}: {e}")
         return snapshots
 
     async def start(self, on_tick: Callable[[Tick], None | asyncio.Future]) -> None:
@@ -199,6 +217,15 @@ class BinanceAdapter(MarketDataAdapter):
                 break
             except Exception as e:
                 self._connected = False
+                err_str = str(e)
+                if ("451" in err_str or "rejected" in err_str) and "binance.com" in self.WS_STREAM_URL:
+                    logger.warning("Binance.com WebSocket geo-blocked (HTTP 451). Switching to Binance US (stream.binance.us)...")
+                    self.WS_STREAM_URL = "wss://stream.binance.us:9443/stream"
+                    self.REST_TICKER_URL = "https://api.binance.us/api/v3/ticker/24hr"
+                    combined_url = f"{self.WS_STREAM_URL}?streams={'/'.join(stream_names)}"
+                    backoff = 1.0
+                    continue
+
                 logger.warning(f"Binance WS disconnected: {e}. Reconnecting in {backoff:.1f}s...")
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 1.5, max_backoff)

@@ -18,28 +18,36 @@ logger = logging.getLogger("terminal_analytics")
 
 
 async def fetch_daily_data(symbol: str, limit: int = 180) -> pd.DataFrame:
-    """Fetch real historical daily OHLCV series for quant modeling."""
+    """Fetch real historical daily OHLCV series for quant modeling with auto US fallback."""
     clean_symbol = symbol.upper().replace("/", "")
-    url = f"https://api.binance.com/api/v3/klines?symbol={clean_symbol}&interval=1d&limit={limit}"
+    urls = [
+        f"https://api.binance.com/api/v3/klines?symbol={clean_symbol}&interval=1d&limit={limit}",
+        f"https://api.binance.us/api/v3/klines?symbol={clean_symbol}&interval=1d&limit={limit}",
+    ]
 
     records = []
-    try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            res = await client.get(url)
-            if res.status_code == 200:
-                raw = res.json()
-                for c in raw:
-                    records.append({
-                        "time_sec": int(c[0] // 1000),
-                        "date": pd.to_datetime(c[0], unit="ms").strftime("%Y-%m-%d"),
-                        "open": float(c[1]),
-                        "high": float(c[2]),
-                        "low": float(c[3]),
-                        "close": float(c[4]),
-                        "volume": float(c[5]),
-                    })
-    except Exception as e:
-        logger.error(f"Error fetching daily candles for {clean_symbol}: {e}")
+    for url in urls:
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                res = await client.get(url)
+                if res.status_code == 200:
+                    raw = res.json()
+                    for c in raw:
+                        records.append({
+                            "time_sec": int(c[0] // 1000),
+                            "date": pd.to_datetime(c[0], unit="ms").strftime("%Y-%m-%d"),
+                            "open": float(c[1]),
+                            "high": float(c[2]),
+                            "low": float(c[3]),
+                            "close": float(c[4]),
+                            "volume": float(c[5]),
+                        })
+                    if records:
+                        break
+                elif res.status_code == 451:
+                    continue
+        except Exception as e:
+            logger.debug(f"Could not fetch daily klines from {url}: {e}")
 
     if not records:
         return pd.DataFrame()

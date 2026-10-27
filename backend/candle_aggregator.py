@@ -111,23 +111,31 @@ class RealtimeCandleAggregator:
         # Fetch historical warmup from Binance if local history has fewer than limit bars
         historical_candles: List[dict] = []
         if len(local_closed) < limit:
-            try:
-                url = f"https://api.binance.com/api/v3/klines?symbol={sym}&interval={timeframe}&limit={limit}"
-                async with httpx.AsyncClient(timeout=6.0) as client:
-                    res = await client.get(url)
-                    if res.status_code == 200:
-                        raw = res.json()
-                        for c in raw:
-                            historical_candles.append({
-                                "time": int(c[0] // 1000),
-                                "open": float(c[1]),
-                                "high": float(c[2]),
-                                "low": float(c[3]),
-                                "close": float(c[4]),
-                                "volume": float(c[5]),
-                            })
-            except Exception as e:
-                logger.warning(f"Could not fetch Binance klines warmup for {sym}: {e}")
+            urls = [
+                f"https://api.binance.com/api/v3/klines?symbol={sym}&interval={timeframe}&limit={limit}",
+                f"https://api.binance.us/api/v3/klines?symbol={sym}&interval={timeframe}&limit={limit}",
+            ]
+            for url in urls:
+                try:
+                    async with httpx.AsyncClient(timeout=6.0) as client:
+                        res = await client.get(url)
+                        if res.status_code == 200:
+                            raw = res.json()
+                            for c in raw:
+                                historical_candles.append({
+                                    "time": int(c[0] // 1000),
+                                    "open": float(c[1]),
+                                    "high": float(c[2]),
+                                    "low": float(c[3]),
+                                    "close": float(c[4]),
+                                    "volume": float(c[5]),
+                                })
+                            if historical_candles:
+                                break
+                        elif res.status_code == 451:
+                            continue
+                except Exception as e:
+                    logger.debug(f"Could not fetch Binance klines warmup for {sym} from {url}: {e}")
 
         # Merge historical candles with local closed and open bars
         candle_map: Dict[int, dict] = {}

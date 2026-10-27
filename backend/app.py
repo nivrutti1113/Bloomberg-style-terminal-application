@@ -395,9 +395,14 @@ async def health_check():
 async def readiness_check():
     """Readiness probe: Confirms market data feed, database, and message bus are fully operational."""
     now_ms = int(time.time() * 1000)
+    uptime_sec = time.time() - state.start_time
+    is_test_mode = os.getenv("TEST_MODE") == "true"
+
     feed_healthy = (
-        state.last_tick_time > 0 and (now_ms - state.last_tick_time) < 15000
-    ) or os.getenv("TEST_MODE") == "true"
+        (state.last_tick_time > 0 and (now_ms - state.last_tick_time) < 30000)
+        or is_test_mode
+        or (binance_adapter.is_running and uptime_sec < 90)
+    )
     db_healthy = await db_mgr.is_healthy()
     pubsub_healthy = await pubsub_mgr.is_healthy()
 

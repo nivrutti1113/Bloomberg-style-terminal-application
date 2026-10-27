@@ -137,21 +137,27 @@ class SymbolOrderBook:
         return snapshot
 
     async def fetch_rest_snapshot(self) -> bool:
-        url = f"https://api.binance.com/api/v3/depth?symbol={self.symbol}&limit=20"
-        try:
-            async with httpx.AsyncClient(timeout=4.0) as client:
-                res = await client.get(url)
-                if res.status_code == 200:
-                    data = res.json()
-                    self.update_from_raw(
-                        last_update_id=data.get("lastUpdateId", 0),
-                        raw_bids=data.get("bids", []),
-                        raw_asks=data.get("asks", []),
-                        ts_ms=int(asyncio.get_event_loop().time() * 1000),
-                    )
-                    return True
-        except Exception as e:
-            logger.warning(f"Error fetching REST depth snapshot for {self.symbol}: {e}")
+        urls = [
+            f"https://api.binance.com/api/v3/depth?symbol={self.symbol}&limit=20",
+            f"https://api.binance.us/api/v3/depth?symbol={self.symbol}&limit=20",
+        ]
+        for url in urls:
+            try:
+                async with httpx.AsyncClient(timeout=4.0) as client:
+                    res = await client.get(url)
+                    if res.status_code == 200:
+                        data = res.json()
+                        self.update_from_raw(
+                            last_update_id=data.get("lastUpdateId", 0),
+                            raw_bids=data.get("bids", []),
+                            raw_asks=data.get("asks", []),
+                            ts_ms=int(asyncio.get_event_loop().time() * 1000),
+                        )
+                        return True
+                    elif res.status_code == 451:
+                        continue
+            except Exception as e:
+                logger.debug(f"Error fetching REST depth snapshot from {url}: {e}")
         return False
 
     async def start(self):
@@ -206,6 +212,13 @@ class SymbolOrderBook:
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                err_str = str(e)
+                if ("451" in err_str or "rejected" in err_str) and "binance.com" in url:
+                    logger.warning(f"Binance.com depth stream geo-blocked (HTTP 451) for {self.symbol}. Switching to stream.binance.us...")
+                    url = f"wss://stream.binance.us:9443/ws/{stream_name}"
+                    backoff = 1.0
+                    continue
+
                 logger.warning(f"Depth stream for {self.symbol} disconnected: {e}. Reconnecting in {backoff:.1f}s...")
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 1.5, 10.0)
