@@ -288,35 +288,61 @@ export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
       try {
         setError(null);
 
-        // Try backend /candles first
+        // 1. Try backend /candles endpoint
         let rawCandles: { time: number; open: number; high: number; low: number; close: number; volume: number }[] = [];
         try {
           const res = await fetch(`${getApiBaseUrl()}/candles?symbol=${targetSymbol}&tf=${timeframe}&limit=180`);
           if (res.ok) {
             const data = await res.json();
-            rawCandles = data.candles || [];
+            if (data.candles && Array.isArray(data.candles) && data.candles.length > 0) {
+              rawCandles = data.candles;
+            }
           }
         } catch {
-          // If backend offline, fall back directly to Binance REST API
-          const binanceUrl = `https://api.binance.com/api/v3/klines?symbol=${targetSymbol}&interval=${timeframe}&limit=180`;
-          const res = await fetch(binanceUrl);
-          if (res.ok) {
-            const raw = await res.json();
-            rawCandles = raw.map((c: (number | string)[]) => ({
-              time: Math.floor(Number(c[0]) / 1000),
-              open: parseFloat(String(c[1])),
-              high: parseFloat(String(c[2])),
-              low: parseFloat(String(c[3])),
-              close: parseFloat(String(c[4])),
-              volume: parseFloat(String(c[5])),
-            }));
+          // Continue to fallback
+        }
+
+        // 2. Multi-Mirror Fallback if backend returned empty or was unreachable
+        // (Includes Binance Vision public mirror which bypasses ISP DNS blocks, Global, and US)
+        if (rawCandles.length === 0) {
+          const mirrorUrls = [
+            `https://data-api.binance.vision/api/v3/klines?symbol=${targetSymbol}&interval=${timeframe}&limit=180`,
+            `https://api.binance.com/api/v3/klines?symbol=${targetSymbol}&interval=${timeframe}&limit=180`,
+            `https://api.binance.us/api/v3/klines?symbol=${targetSymbol}&interval=${timeframe}&limit=180`,
+          ];
+
+          for (const url of mirrorUrls) {
+            try {
+              const res = await fetch(url);
+              if (res.ok) {
+                const raw = await res.json();
+                if (Array.isArray(raw) && raw.length > 0) {
+                  rawCandles = raw.map((c: (number | string)[]) => ({
+                    time: Math.floor(Number(c[0]) / 1000),
+                    open: parseFloat(String(c[1])),
+                    high: parseFloat(String(c[2])),
+                    low: parseFloat(String(c[3])),
+                    close: parseFloat(String(c[4])),
+                    volume: parseFloat(String(c[5])),
+                  }));
+                  break;
+                }
+              }
+            } catch {
+              // Try next mirror
+            }
           }
         }
 
         if (!isMounted) return;
 
         if (!rawCandles || rawCandles.length === 0) {
-          setError(`NO CANDLE DATA AVAILABLE FOR ${targetSymbol}`);
+          const isNSE = !targetSymbol.endsWith("USDT") && !targetSymbol.includes("/");
+          if (isNSE) {
+            setError(`NO CANDLE DATA: ${targetSymbol} is an Indian equity stub (Set NSE credentials in backend).`);
+          } else {
+            setError(`NO CANDLE DATA AVAILABLE FOR ${targetSymbol}`);
+          }
           setLoading(false);
           return;
         }
