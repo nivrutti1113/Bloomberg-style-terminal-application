@@ -184,13 +184,14 @@ class TerminalState:
             "recv_ts_ms": tick.recv_ts_ms,
         }
 
-    def get_metrics(self, feed_connected: bool) -> dict:
+    def get_metrics(self, feed_connected: bool, feed_reconnect_count: int = 0) -> dict:
         now_ms = int(time.time() * 1000)
         one_sec_ago = now_ms - 1000
         while self.tick_timestamps and self.tick_timestamps[0] < one_sec_ago:
             self.tick_timestamps.popleft()
 
         ticks_per_sec = len(self.tick_timestamps)
+        last_tick_age_ms = (now_ms - self.last_tick_time) if self.last_tick_time > 0 else None
 
         feed_p50 = float(np.percentile(self.feed_latencies, 50)) if self.feed_latencies else 0.0
         feed_p99 = float(np.percentile(self.feed_latencies, 99)) if self.feed_latencies else 0.0
@@ -201,6 +202,8 @@ class TerminalState:
             "ticks_per_sec": ticks_per_sec,
             "total_ticks": self.total_ticks,
             "conflated_ticks": self.conflated_ticks_count,
+            "last_tick_age_ms": last_tick_age_ms,
+            "feed_reconnect_count": feed_reconnect_count,
             "p50_latency_ms": round(feed_p50, 1),
             "p99_latency_ms": round(feed_p99, 1),
             "feed_latency_ms": {"p50": round(feed_p50, 1), "p99": round(feed_p99, 1)},
@@ -231,12 +234,82 @@ nse_adapter = NSEAdapter()
 
 
 # ==========================================
+# Client Distribution & Conflation Layer
+# ==========================================
+_conflation_ticks: Dict[str, Tick] = {}
+client_queues: Dict[WebSocket, asyncio.Queue] = {}
+CLIENT_QUEUE_MAXSIZE = 100
+
+
+def enqueue_client_message(queue: asyncio.Queue, message: dict):
+    """Enqueues a message with drop-oldest policy if the bounded queue is full."""
+    if queue.full():
+        try:
+            queue.get_nowait()  # Drop oldest item
+        except asyncio.QueueEmpty:
+            pass
+    try:
+        queue.put_nowait(message)
+    except asyncio.QueueFull:
+        pass
+
+
+async def conflation_broadcaster_loop():
+    """
+    Conflates ticks per symbol for browser clients.
+    Sends at most the latest tick per symbol every 100ms.
+    """
+    while True:
+        try:
+            await asyncio.sleep(0.1)  # 100ms conflation window
+            if not _conflation_ticks or not client_queues:
+                continue
+
+            # Atomically extract current conflated snapshot
+            ticks_batch = list(_conflation_ticks.values())
+            _conflation_ticks.clear()
+
+            for ws, q in list(client_queues.items()):
+                subs = state.client_subscriptions.get(ws, set())
+                for tick in ticks_batch:
+                    if not subs or tick.symbol in subs:
+                        payload = {"type": "tick", "data": tick.to_dict()}
+                        enqueue_client_message(q, payload)
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.debug(f"Conflation broadcaster error: {e}")
+
+
+async def heartbeat_broadcaster_loop():
+    """
+    Sends a small {"type":"ping"} message to every WebSocket client every 15-20 seconds.
+    """
+    while True:
+        try:
+            await asyncio.sleep(15.0)
+            if not client_queues:
+                continue
+            now_ms = int(time.time() * 1000)
+            ping_msg = {"type": "ping", "ts": now_ms}
+            for q in list(client_queues.values()):
+                enqueue_client_message(q, ping_msg)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.debug(f"Heartbeat broadcaster error: {e}")
+
+
+# ==========================================
 # Lifecycle Management
 # ==========================================
 async def handle_incoming_tick(tick: Tick):
     state.record_tick(tick)
     candle_aggregator.process_tick(tick)
     await db_mgr.enqueue_tick(tick)
+    # Fast non-blocking update of conflation buffer (never blocks the Binance feed)
+    _conflation_ticks[tick.symbol] = tick
     payload = {"type": "tick", "data": tick.to_dict()}
     await pubsub_mgr.publish("market:ticks", payload)
 
@@ -257,6 +330,10 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(book_hub.ensure_started("BTCUSDT"))
     asyncio.create_task(book_hub.ensure_started("ETHUSDT"))
 
+    # Background broadcast & heartbeat workers
+    conflation_task = asyncio.create_task(conflation_broadcaster_loop())
+    heartbeat_task = asyncio.create_task(heartbeat_broadcaster_loop())
+
     # Start Binance public websocket stream
     await binance_adapter.start(handle_incoming_tick)
     await nse_adapter.start(handle_incoming_tick)
@@ -264,6 +341,8 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down terminal backend...")
+    conflation_task.cancel()
+    heartbeat_task.cancel()
     await binance_adapter.stop()
     await nse_adapter.stop()
     await book_hub.close_all()
@@ -324,7 +403,10 @@ async def get_prices():
 @app.get("/metrics")
 async def get_metrics():
     """Returns real-time system metrics (ticks/sec, p50/p99 latency, clients)."""
-    return state.get_metrics(feed_connected=binance_adapter.is_connected)
+    return state.get_metrics(
+        feed_connected=binance_adapter.is_connected,
+        feed_reconnect_count=binance_adapter.reconnect_count,
+    )
 
 
 @app.get("/venues")
@@ -381,7 +463,7 @@ def get_allowed_symbols() -> Set[str]:
     return set(binance_adapter.symbols) | set(nse_adapter.symbols)
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
     """Liveness probe: Fast, low overhead check confirming the web worker is running."""
     return {
@@ -523,10 +605,12 @@ async def get_voltarget_analytics(symbol: str, request: Request):
 async def websocket_endpoint(websocket: WebSocket):
     """
     Real-time high-throughput normalized tick stream.
-    Supports client subscription to specific symbols or all symbols.
-    Features: Origin validation, Max client enforcement, Max subscription limits,
-    Backpressure conflation (dropping stale backlog per symbol rather than disconnecting),
-    and per-socket write timeouts.
+    Features:
+    - Origin validation & connection limits
+    - 100ms symbol conflation (at most the latest tick per symbol every 100ms)
+    - Bounded per-client queue with drop-oldest policy (prevents slow clients from consuming RAM or crashing)
+    - Heartbeat ping-pong (backend ping every 15s)
+    - Non-blocking ingestion loop
     """
     if not validate_ws_origin(websocket):
         await websocket.close(code=1008, reason="Policy Violation: Disallowed Origin")
@@ -540,8 +624,9 @@ async def websocket_endpoint(websocket: WebSocket):
     state.active_clients.add(websocket)
     state.client_subscriptions[websocket] = set()
 
-    queue = pubsub_mgr.subscribe()
-    conflation_buffer: Dict[str, dict] = {}
+    # Bounded per-client queue with drop-oldest policy
+    queue = asyncio.Queue(maxsize=CLIENT_QUEUE_MAXSIZE)
+    client_queues[websocket] = queue
 
     async def client_reader():
         try:
@@ -559,7 +644,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         allowed = get_allowed_symbols()
                         invalid = [s for s in req_symbols if s not in allowed]
                         if invalid:
-                            await websocket.send_json({
+                            enqueue_client_message(queue, {
                                 "type": "error",
                                 "code": 4400,
                                 "message": f"Unknown symbols: {invalid}",
@@ -569,7 +654,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                         current_subs = state.client_subscriptions.get(websocket, set())
                         if len(current_subs) + len(req_symbols) > MAX_SUBSCRIPTIONS:
-                            await websocket.send_json({
+                            enqueue_client_message(queue, {
                                 "type": "error",
                                 "code": 4429,
                                 "message": f"Subscription limit exceeded. Maximum {MAX_SUBSCRIPTIONS} symbols allowed.",
@@ -577,19 +662,22 @@ async def websocket_endpoint(websocket: WebSocket):
                             continue
 
                         current_subs.update(req_symbols)
-                        await websocket.send_json({"type": "subscribed", "symbols": list(current_subs)})
+                        enqueue_client_message(queue, {"type": "subscribed", "symbols": list(current_subs)})
 
                     elif action == "unsubscribe":
                         req_symbols = {s.upper() for s in msg.get("symbols", [])}
                         current_subs = state.client_subscriptions.get(websocket, set())
                         current_subs.difference_update(req_symbols)
-                        await websocket.send_json({"type": "unsubscribed", "symbols": list(current_subs)})
+                        enqueue_client_message(queue, {"type": "unsubscribed", "symbols": list(current_subs)})
 
                     elif action == "ping" or msg.get("type") == "ping":
-                        await websocket.send_json({"type": "pong", "ts": int(time.time() * 1000)})
+                        enqueue_client_message(queue, {"type": "pong", "ts": int(time.time() * 1000)})
+
+                    elif action == "pong" or msg.get("type") == "pong":
+                        pass  # Client acknowledged heartbeat
 
                 except json.JSONDecodeError:
-                    await websocket.send_json({"type": "error", "code": 4400, "message": "Invalid JSON format"})
+                    enqueue_client_message(queue, {"type": "error", "code": 4400, "message": "Invalid JSON format"})
         except WebSocketDisconnect:
             pass
         except Exception as e:
@@ -601,37 +689,11 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.send_json({"type": "snapshot", "data": state.prices})
 
             while True:
-                # Conflation under backpressure: If queue accumulates > 50 messages,
-                # conflate backlog into the latest tick per symbol to prevent lag & disconnects
-                if queue.qsize() > 50:
-                    while not queue.empty():
-                        try:
-                            item = queue.get_nowait()
-                            t_data = item.get("data")
-                            if t_data and "symbol" in t_data:
-                                conflation_buffer[t_data["symbol"]] = item
-                                state.conflated_ticks_count += 1
-                        except asyncio.QueueEmpty:
-                            break
-
-                    for sym, conflated_item in list(conflation_buffer.items()):
-                        client_subs = state.client_subscriptions.get(websocket, set())
-                        if not client_subs or sym in client_subs:
-                            t_send_start = time.time()
-                            await asyncio.wait_for(websocket.send_json(conflated_item), timeout=0.5)
-                            state.pipeline_latencies.append((time.time() - t_send_start) * 1000)
-                    conflation_buffer.clear()
-
-                # Normal tick streaming
-                payload = await queue.get()
-                tick_data = payload.get("data")
-                if tick_data:
-                    symbol = tick_data.get("symbol")
-                    client_subs = state.client_subscriptions.get(websocket, set())
-                    if not client_subs or symbol in client_subs:
-                        t_send_start = time.time()
-                        await asyncio.wait_for(websocket.send_json(payload), timeout=0.5)
-                        state.pipeline_latencies.append((time.time() - t_send_start) * 1000)
+                item = await queue.get()
+                t_send_start = time.time()
+                # 5.0s write timeout accommodates network jitter without disconnecting active clients
+                await asyncio.wait_for(websocket.send_json(item), timeout=5.0)
+                state.pipeline_latencies.append((time.time() - t_send_start) * 1000)
 
         except (WebSocketDisconnect, asyncio.TimeoutError):
             pass
@@ -652,7 +714,7 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         state.active_clients.discard(websocket)
         state.client_subscriptions.pop(websocket, None)
-        pubsub_mgr.unsubscribe(queue)
+        client_queues.pop(websocket, None)
         logger.info(f"Client disconnected. Active clients: {len(state.active_clients)}")
 
 
@@ -696,7 +758,7 @@ async def websocket_book_endpoint(websocket: WebSocket, symbol: str):
         # Stream book frames to client with timeout
         while True:
             payload = await queue.get()
-            await asyncio.wait_for(websocket.send_json(payload), timeout=0.5)
+            await asyncio.wait_for(websocket.send_json(payload), timeout=5.0)
     except (WebSocketDisconnect, asyncio.TimeoutError):
         pass
     except Exception as e:
@@ -710,4 +772,12 @@ if __name__ == "__main__":
     import uvicorn
     import os
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False, access_log=False)
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=port,
+        reload=False,
+        access_log=False,
+        ws_ping_interval=20,
+        ws_ping_timeout=20,
+    )

@@ -34,6 +34,9 @@ export type WsConnectionStatus = "CONNECTED" | "RECONNECTING" | "DISCONNECTED" |
 export interface ServerMetrics {
   ticks_per_sec: number;
   total_ticks: number;
+  conflated_ticks?: number;
+  last_tick_age_ms?: number | null;
+  feed_reconnect_count?: number;
   p50_latency_ms: number;
   p99_latency_ms: number;
   active_ws_connections: number;

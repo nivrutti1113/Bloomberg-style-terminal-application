@@ -97,6 +97,7 @@ class BinanceAdapter(MarketDataAdapter):
     def __init__(self, symbols: Optional[List[str]] = None):
         super().__init__(venue="BINANCE")
         self.symbols = [s.upper() for s in (symbols or self.DEFAULT_SYMBOLS)]
+        self.reconnect_count: int = 0
         self._task: Optional[asyncio.Task] = None
         self._on_tick_callback: Optional[Callable[[Tick], None | asyncio.Future]] = None
 
@@ -166,6 +167,8 @@ class BinanceAdapter(MarketDataAdapter):
         max_backoff = 30.0
 
         while self._running:
+            close_code: Optional[int] = None
+            close_reason: str = ""
             try:
                 logger.info(f"Connecting to Binance public stream ({len(self.symbols)} symbols)...")
                 async with websockets.connect(
@@ -213,10 +216,15 @@ class BinanceAdapter(MarketDataAdapter):
                         except Exception as parse_err:
                             logger.error(f"Error parsing trade message: {parse_err}")
 
+                    close_code = getattr(ws, "close_code", 1000)
+                    close_reason = getattr(ws, "close_reason", "stream finished") or "stream finished"
+
+            except websockets.ConnectionClosed as cc:
+                close_code = cc.code
+                close_reason = cc.reason or "connection closed"
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self._connected = False
                 err_str = str(e)
                 if ("451" in err_str or "rejected" in err_str) and "binance.com" in self.WS_STREAM_URL:
                     logger.warning("Binance.com WebSocket geo-blocked (HTTP 451). Switching to Binance US (stream.binance.us)...")
@@ -226,9 +234,20 @@ class BinanceAdapter(MarketDataAdapter):
                     backoff = 1.0
                     continue
 
-                logger.warning(f"Binance WS disconnected: {e}. Reconnecting in {backoff:.1f}s...")
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 1.5, max_backoff)
+                close_code = getattr(e, "code", None) or 1006
+                close_reason = err_str
+
+            self._connected = False
+            if not self._running:
+                break
+
+            self.reconnect_count += 1
+            logger.warning(
+                f"Binance feed disconnected (close_code={close_code}, reason='{close_reason}'). "
+                f"feed_reconnect_count={self.reconnect_count}. Reconnecting in {backoff:.1f}s..."
+            )
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 1.5, max_backoff)
 
         self._connected = False
 

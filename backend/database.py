@@ -230,7 +230,7 @@ class DatabaseManager:
             pass
 
     async def _batch_writer_loop(self):
-        """Asynchronously batch inserts ticks every 250ms or when batch reaches 200 items."""
+        """Asynchronously batch inserts ticks every 1s or when batch reaches 500 items. Never one insert per tick."""
         batch: List[Tick] = []
         last_flush = time.time()
 
@@ -238,13 +238,19 @@ class DatabaseManager:
             try:
                 # Wait for next tick with short timeout to enforce periodic flushing
                 try:
-                    tick = await asyncio.wait_for(self._batch_queue.get(), timeout=0.25)
+                    tick = await asyncio.wait_for(self._batch_queue.get(), timeout=0.5)
                     batch.append(tick)
+                    # Drain any readily available ticks up to 500
+                    while len(batch) < 500 and not self._batch_queue.empty():
+                        try:
+                            batch.append(self._batch_queue.get_nowait())
+                        except asyncio.QueueEmpty:
+                            break
                 except asyncio.TimeoutError:
                     pass
 
                 now = time.time()
-                if len(batch) >= 200 or (batch and (now - last_flush) >= 0.5):
+                if len(batch) >= 500 or (batch and (now - last_flush) >= 1.0):
                     await self._flush_batch(batch)
                     self.total_inserted += len(batch)
                     batch.clear()

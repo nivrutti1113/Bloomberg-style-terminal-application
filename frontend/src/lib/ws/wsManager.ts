@@ -40,6 +40,10 @@ class WebSocketManager {
   private staleCheckTimer: ReturnType<typeof setInterval> | null = null;
 
   private lastTickTimeMs: number = 0;
+  private lastHeartbeatTimeMs: number = 0;
+  private connectionOpenTimeMs: number = 0;
+  private consecutiveFailedChecks: number = 0;
+  private consecutiveGoodChecks: number = 0;
   private lastLatencyMs: number = 0;
   private subscribedSymbols: Set<string> = new Set([
     "BTCUSDT",
@@ -98,34 +102,60 @@ class WebSocketManager {
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
+      this.consecutiveFailedChecks = 0;
+      this.consecutiveGoodChecks = 0;
+      const now = Date.now();
+      this.connectionOpenTimeMs = now;
+      this.lastTickTimeMs = now;
+      this.lastHeartbeatTimeMs = now;
+
       this.setStatus(this.isUsingFallback ? "DIRECT_FALLBACK" : "CONNECTED");
       this.startHeartbeat();
 
-      // If backend, send subscriptions
+      // Re-subscribe to all active symbols on connect / reconnect
       if (!this.isUsingFallback && this.subscribedSymbols.size > 0) {
         this.send({
           action: "subscribe",
           symbols: Array.from(this.subscribedSymbols),
         });
+        console.log(
+          `[WSManager] Connected. Re-subscribed to ${this.subscribedSymbols.size} symbols:`,
+          Array.from(this.subscribedSymbols)
+        );
       }
     };
 
     this.ws.onmessage = (event: MessageEvent) => {
       const recvTime = Date.now();
-      this.lastTickTimeMs = recvTime;
-      this.tickCountInWindow++;
 
       try {
         const payload = JSON.parse(event.data);
 
+        // Handle backend ping heartbeat message
+        if (payload.type === "ping") {
+          this.lastHeartbeatTimeMs = recvTime;
+          this.send({ type: "pong", ts: recvTime });
+          return;
+        }
+
+        // Handle pong message
+        if (payload.type === "pong") {
+          this.lastHeartbeatTimeMs = recvTime;
+          return;
+        }
+
         // Handle backend tick format
         if (payload.type === "tick" && payload.data) {
+          this.lastTickTimeMs = recvTime;
+          this.tickCountInWindow++;
           const t = payload.data as Tick;
           this.lastLatencyMs = Math.max(0, t.recv_ts_ms - t.exch_ts_ms);
           this.queueTick(t);
         }
         // Handle direct Binance WebSocket fallback format
         else if (payload.data && payload.data.e === "trade") {
+          this.lastTickTimeMs = recvTime;
+          this.tickCountInWindow++;
           const d = payload.data;
           const tick: Tick = {
             venue: "BINANCE",
@@ -140,6 +170,7 @@ class WebSocketManager {
         }
         // Handle backend snapshot
         else if (payload.type === "snapshot" && payload.data) {
+          this.lastTickTimeMs = recvTime;
           const snapshotPrices = payload.data as Record<string, Partial<Tick>>;
           const ticks: Tick[] = Object.values(snapshotPrices).map((p) => ({
             venue: p.venue || "BINANCE",
@@ -156,34 +187,36 @@ class WebSocketManager {
       }
     };
 
-    this.ws.onerror = () => {
-      // If backend failed and we haven't tried fallback, switch to direct Binance stream
-      if (!this.isUsingFallback) {
-        console.warn("[WSManager] Backend not reachable. Switching to direct Binance WebSocket fallback.");
-        this.isUsingFallback = true;
-      }
+    this.ws.onerror = (err) => {
+      console.warn("[WSManager] WebSocket error observed:", err);
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event: CloseEvent) => {
       this.stopHeartbeat();
-      this.handleConnectionFailure();
+      console.warn(
+        `[WSManager] WebSocket closed (code: ${event.code}, reason: "${event.reason || "none"}"). Initiating reconnect...`
+      );
+      this.handleConnectionFailure(event.code, event.reason);
     };
   }
 
-  private handleConnectionFailure(): void {
+  private handleConnectionFailure(closeCode?: number, reason?: string): void {
     this.setStatus("RECONNECTING");
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      // Alternate between backend and direct fallback
+      // Alternate between backend and direct fallback if max attempts reached
       this.isUsingFallback = !this.isUsingFallback;
       this.reconnectAttempts = 0;
+      console.warn(`[WSManager] Max reconnect attempts reached. Using fallback: ${this.isUsingFallback}`);
     }
 
-    const jitter = Math.random() * 500;
-    const backoff = Math.min(
-      this.baseBackoffMs * Math.pow(1.5, this.reconnectAttempts) + jitter,
-      this.maxBackoffMs
-    );
+    const rawBackoff = this.baseBackoffMs * Math.pow(1.5, this.reconnectAttempts);
+    const jitter = Math.random() * 1000;
+    const backoff = Math.min(rawBackoff + jitter, this.maxBackoffMs);
     this.reconnectAttempts++;
+
+    console.warn(
+      `[WSManager] Reconnecting in ${Math.round(backoff)}ms (attempt ${this.reconnectAttempts}, last close code: ${closeCode ?? "unknown"}, reason: "${reason || "none"}")`
+    );
 
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
@@ -211,7 +244,6 @@ class WebSocketManager {
     if (this.staleCheckTimer) clearInterval(this.staleCheckTimer);
     this.staleCheckTimer = setInterval(() => {
       const now = Date.now();
-      const elapsedSinceTick = now - this.lastTickTimeMs;
 
       // Update ticks/sec calculation
       const nowPerf = performance.now();
@@ -222,15 +254,63 @@ class WebSocketManager {
         this.lastRateCheckTime = nowPerf;
       }
 
-      // 5-second staleness rule
-      if (
-        (this.status === "CONNECTED" || this.status === "DIRECT_FALLBACK") &&
-        this.lastTickTimeMs > 0 &&
-        elapsedSinceTick > 5000
-      ) {
-        this.setStatus("STALE");
-      } else if (this.status === "STALE" && elapsedSinceTick <= 5000) {
-        this.setStatus(this.isUsingFallback ? "DIRECT_FALLBACK" : "CONNECTED");
+      // Requirement 1: Missing heartbeat for 40s treated as dead socket -> reconnect
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        const elapsedSinceHeartbeat =
+          this.lastHeartbeatTimeMs > 0
+            ? now - this.lastHeartbeatTimeMs
+            : now - this.connectionOpenTimeMs;
+
+        if (elapsedSinceHeartbeat > 40000) {
+          console.warn(
+            `[WSManager] Dead socket detected: No heartbeat received for ${Math.round(
+              elapsedSinceHeartbeat / 1000
+            )}s (>40s). Closing socket to trigger reconnect.`
+          );
+          this.ws.close(4000, "Missing heartbeat timeout (40s)");
+          return;
+        }
+      }
+
+      // Requirement 2: Smarter STALE watchdog
+      // Mark STALE only if NO tick (any symbol) AND no heartbeat arrived in the last 15 seconds.
+      // Never mark STALE based on one low-activity symbol.
+      // Add hysteresis: require 2 consecutive failed checks to go STALE
+      // and 2 consecutive good checks to return to CONNECTED, so the status does not flicker.
+      if (this.status === "CONNECTED" || this.status === "STALE" || this.status === "DIRECT_FALLBACK") {
+        const elapsedSinceTick =
+          this.lastTickTimeMs > 0 ? now - this.lastTickTimeMs : now - this.connectionOpenTimeMs;
+        const elapsedSinceHeartbeat =
+          this.lastHeartbeatTimeMs > 0 ? now - this.lastHeartbeatTimeMs : now - this.connectionOpenTimeMs;
+
+        const checkFailed = elapsedSinceTick > 15000 && elapsedSinceHeartbeat > 15000;
+
+        if (checkFailed) {
+          this.consecutiveFailedChecks++;
+          this.consecutiveGoodChecks = 0;
+
+          if (this.consecutiveFailedChecks >= 2 && this.status !== "STALE") {
+            this.setStatus("STALE");
+            console.warn(
+              `[WSManager] Connection marked STALE (failed 2 consecutive checks: tick_age=${Math.round(
+                elapsedSinceTick / 1000
+              )}s, heartbeat_age=${Math.round(elapsedSinceHeartbeat / 1000)}s)`
+            );
+          }
+        } else {
+          this.consecutiveGoodChecks++;
+          this.consecutiveFailedChecks = 0;
+
+          if (this.consecutiveGoodChecks >= 2 && this.status === "STALE") {
+            const nextStatus = this.isUsingFallback ? "DIRECT_FALLBACK" : "CONNECTED";
+            this.setStatus(nextStatus);
+            console.log(
+              `[WSManager] Connection restored to ${nextStatus} (passed 2 consecutive checks: tick_age=${Math.round(
+                elapsedSinceTick / 1000
+              )}s, heartbeat_age=${Math.round(elapsedSinceHeartbeat / 1000)}s)`
+            );
+          }
+        }
       }
     }, 1000);
   }
