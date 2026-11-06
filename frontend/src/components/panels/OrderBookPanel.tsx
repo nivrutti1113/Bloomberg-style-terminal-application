@@ -126,6 +126,22 @@ export const OrderBookPanel: React.FC<OrderBookPanelProps> = ({ symbol }) => {
               {bookData ? (bookData.mid_price >= 10 ? bookData.mid_price.toFixed(2) : bookData.mid_price.toFixed(4)) : "--"}
             </span>
           </div>
+
+          <div>
+            <span className="text-[#666666]">MICRO: </span>
+            <span className="text-[#00E5FF] font-bold">
+              {bookData?.micro_price ? (bookData.micro_price >= 10 ? bookData.micro_price.toFixed(2) : bookData.micro_price.toFixed(4)) : "--"}
+            </span>
+          </div>
+
+          {bookData?.ofi_l1 !== undefined && (
+            <div>
+              <span className="text-[#666666]">OFI: </span>
+              <span className={`font-bold ${bookData.ofi_l1 > 0 ? "text-[#00E676]" : bookData.ofi_l1 < 0 ? "text-[#FF1744]" : "text-[#888888]"}`}>
+                {bookData.ofi_l1 > 0 ? `+${bookData.ofi_l1.toFixed(2)}` : bookData.ofi_l1.toFixed(2)}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

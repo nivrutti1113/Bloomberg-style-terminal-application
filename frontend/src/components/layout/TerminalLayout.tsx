@@ -18,9 +18,10 @@ import { TimeAndSalesPanel } from "@/components/panels/TimeAndSalesPanel";
 import { AnalyticsPanel } from "@/components/panels/AnalyticsPanel";
 import { MetricsPanel } from "@/components/panels/MetricsPanel";
 import { HelpPanel } from "@/components/panels/HelpPanel";
+import { MicrostructurePanel } from "@/components/panels/MicrostructurePanel";
 import { useTerminalStore } from "@/store/terminalStore";
 
-const STORAGE_KEY = "FINEVERS_TERMINAL_LAYOUT_V3";
+const STORAGE_KEY = "FINEVERS_TERMINAL_LAYOUT_V4";
 
 const defaultLayoutJson: IJsonModel = {
   global: {
@@ -69,6 +70,13 @@ const defaultLayoutJson: IJsonModel = {
                 name: "BTC OB (ORDER BOOK)",
                 component: "orderbook",
                 id: "panel_orderbook_BTCUSDT",
+                config: { symbol: "BTCUSDT" },
+              },
+              {
+                type: "tab",
+                name: "BTC OFI (MICROSTRUCTURE)",
+                component: "microstructure",
+                id: "panel_microstructure_BTCUSDT",
                 config: { symbol: "BTCUSDT" },
               },
               {
@@ -175,6 +183,9 @@ export const TerminalLayout = forwardRef<TerminalLayoutRef, object>((_, ref) => 
       } else if (component === "orderbook") {
         tabId = `panel_orderbook_${sym}`;
         tabTitle = title || `${cleanTicker} OB (ORDER BOOK)`;
+      } else if (component === "microstructure") {
+        tabId = `panel_microstructure_${sym}`;
+        tabTitle = title || `${cleanTicker} OFI (MICROSTRUCTURE)`;
       } else if (component === "trades") {
         tabId = `panel_trades_${sym}`;
         tabTitle = title || `${cleanTicker} TS (TIME & SALES)`;
@@ -320,6 +331,10 @@ export const TerminalLayout = forwardRef<TerminalLayoutRef, object>((_, ref) => 
           e.preventDefault();
           openOrFocusTab("help", undefined, "HELP (CATALOG)", "HELP");
           break;
+        case "F9":
+          e.preventDefault();
+          openOrFocusTab("microstructure", activeSymbol, `${activeSymbol.replace(/USDT$/, "")} OFI (MICROSTRUCTURE)`, "OFI");
+          break;
         case "Escape":
           closeActiveTab();
           break;
@@ -345,6 +360,8 @@ export const TerminalLayout = forwardRef<TerminalLayoutRef, object>((_, ref) => 
         return <ChartPanel symbol={sym} />;
       case "orderbook":
         return <OrderBookPanel symbol={sym} />;
+      case "microstructure":
+        return <MicrostructurePanel symbol={sym} />;
       case "trades":
         return <TimeAndSalesPanel symbol={sym} />;
       case "analytics":

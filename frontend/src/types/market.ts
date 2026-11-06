@@ -56,6 +56,52 @@ export interface OrderBookData {
   mid_price: number;
   imbalance_pct: number;
   timestamp_ms: number;
+  micro_price?: number;
+  micro_price_bias_bps?: number;
+  ofi_l1?: number;
+  deep_ofi?: number;
+  cumulative_ofi?: number;
+  ofi_zscore?: number;
+  kyle_lambda?: number;
+  predicted_impact_bps?: number;
+  vpin?: number;
+  vpin_state?: "LOW" | "MODERATE" | "TOXIC";
+  regime?: "STRONG_BUY_PRESSURE" | "STRONG_SELL_PRESSURE" | "BALANCED";
+}
+
+export interface MicrostructureTimeseriesPoint {
+  t: number;
+  ofi: number;
+  cum_ofi: number;
+  micro_bias: number;
+  mid: number;
+  vpin: number;
+}
+
+export interface MicrostructureCurrent {
+  symbol: string;
+  timestamp_ms: number;
+  best_bid: number;
+  best_ask: number;
+  mid_price: number;
+  micro_price: number;
+  micro_price_bias_bps: number;
+  ofi_l1: number;
+  deep_ofi: number;
+  cumulative_ofi: number;
+  ofi_zscore: number;
+  kyle_lambda: number;
+  predicted_impact_bps: number;
+  vpin: number;
+  vpin_state: "LOW" | "MODERATE" | "TOXIC";
+  regime: "STRONG_BUY_PRESSURE" | "STRONG_SELL_PRESSURE" | "BALANCED";
+}
+
+export interface MicrostructureData {
+  symbol: string;
+  current: MicrostructureCurrent | null;
+  timeseries: MicrostructureTimeseriesPoint[];
+  timestamp_ms: number;
 }
 
 export interface CommandSuggestion {
@@ -64,7 +110,7 @@ export interface CommandSuggestion {
   category: "NAVIGATION" | "WATCHLIST" | "SYSTEM";
 }
 
-export type PanelType = "watchlist" | "chart" | "orderbook" | "trades" | "analytics" | "metrics" | "help";
+export type PanelType = "watchlist" | "chart" | "orderbook" | "trades" | "analytics" | "metrics" | "help" | "microstructure";
 
 export interface LayoutTabConfig {
   id: string;

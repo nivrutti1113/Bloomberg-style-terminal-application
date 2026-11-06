@@ -6,14 +6,15 @@ export interface ParsedCommand {
   isValid: boolean;
   action: "OPEN_PANEL" | "ADD_SYMBOL" | "DEL_SYMBOL" | "HELP" | "ERROR";
   symbol?: string;
-  panelFunction?: "GP" | "OB" | "TS" | "VOL" | "BT" | "WL" | "METRICS" | "HELP";
-  panelType?: "watchlist" | "chart" | "orderbook" | "trades" | "analytics" | "metrics" | "help";
+  panelFunction?: "GP" | "OB" | "TS" | "VOL" | "BT" | "WL" | "METRICS" | "HELP" | "OFI";
+  panelType?: "watchlist" | "chart" | "orderbook" | "trades" | "analytics" | "metrics" | "help" | "microstructure";
   errorMessage?: string;
 }
 
 export const SUPPORTED_FUNCTIONS: Record<string, { name: string; panelType: ParsedCommand["panelType"]; description: string }> = {
   GP: { name: "Price Chart", panelType: "chart", description: "Candlesticks, technical indicators, and real-time candle line" },
   OB: { name: "Order Book", panelType: "orderbook", description: "20-level depth ladder with spread and order book imbalance" },
+  OFI: { name: "Order Flow Imbalance", panelType: "microstructure", description: "OFI alpha, Micro-Price drift, Kyle's lambda & VPIN toxicity" },
   TS: { name: "Time & Sales", panelType: "trades", description: "Live virtualized trade tape with large transaction highlights" },
   VOL: { name: "HAR Volatility", panelType: "analytics", description: "HAR-RV realized volatility forecasts (1d, 5d, 22d)" },
   BT: { name: "Vol-Target Backtest", panelType: "analytics", description: "Volatility targeting backtest equity curve & Sharpe ratio" },
@@ -42,7 +43,7 @@ export function parseCommand(rawInput: string, currentActiveSymbol: string = "BT
     if (first === "METRICS") {
       return { isValid: true, action: "OPEN_PANEL", panelFunction: "METRICS", panelType: "metrics" };
     }
-    // If just a function code (e.g. "GP"), apply to current active symbol
+    // If just a function code (e.g. "GP", "OFI"), apply to current active symbol
     if (first in SUPPORTED_FUNCTIONS) {
       const fn = first as keyof typeof SUPPORTED_FUNCTIONS;
       return {
@@ -72,7 +73,7 @@ export function parseCommand(rawInput: string, currentActiveSymbol: string = "BT
     return { isValid: true, action: "DEL_SYMBOL", symbol: sym };
   }
 
-  // Syntax: <SYMBOL> <FUNCTION> (e.g. "BTC GP", "ETH OB", "SOL TS")
+  // Syntax: <SYMBOL> <FUNCTION> (e.g. "BTC GP", "ETH OB", "BTC OFI", "SOL TS")
   if (parts.length >= 2) {
     let sym = parts[0].toUpperCase();
     const fn = parts[1].toUpperCase();
@@ -94,7 +95,7 @@ export function parseCommand(rawInput: string, currentActiveSymbol: string = "BT
       return {
         isValid: false,
         action: "ERROR",
-        errorMessage: `Unknown function '${fn}'. Type 'HELP' to see all commands (GP, OB, TS, VOL, BT, WL).`,
+        errorMessage: `Unknown function '${fn}'. Type 'HELP' to see all commands (GP, OB, OFI, TS, VOL, BT, WL).`,
       };
     }
   }
@@ -102,12 +103,13 @@ export function parseCommand(rawInput: string, currentActiveSymbol: string = "BT
   return {
     isValid: false,
     action: "ERROR",
-    errorMessage: `Unrecognized command: '${trimmed}'. Syntax: <SYMBOL> <FUNCTION> (e.g., 'BTC GP', 'ETH OB', 'WL').`,
+    errorMessage: `Unrecognized command: '${trimmed}'. Syntax: <SYMBOL> <FUNCTION> (e.g., 'BTC GP', 'BTC OFI', 'ETH OB', 'WL').`,
   };
 }
 
 export const AUTOCOMPLETE_ITEMS = [
   { command: "BTC GP", label: "BTC Price Chart", desc: "Open BTC candlesticks" },
+  { command: "BTC OFI", label: "BTC Microstructure", desc: "Order Flow Imbalance, Micro-Price & VPIN" },
   { command: "ETH GP", label: "ETH Price Chart", desc: "Open ETH candlesticks" },
   { command: "SOL GP", label: "SOL Price Chart", desc: "Open SOL candlesticks" },
   { command: "BTC OB", label: "BTC Order Book", desc: "Open BTC depth ladder" },

@@ -22,6 +22,7 @@ from adapters import BinanceAdapter, NSEAdapter, Tick
 from analytics import calculate_har_model, calculate_vol_target_backtest, fetch_daily_data
 from candle_aggregator import RealtimeCandleAggregator
 from database import DatabaseManager
+from microstructure import microstructure_hub
 from order_book import OrderBookHub
 
 logger = logging.getLogger("terminal_backend")
@@ -306,6 +307,7 @@ async def heartbeat_broadcaster_loop():
 # ==========================================
 async def handle_incoming_tick(tick: Tick):
     state.record_tick(tick)
+    microstructure_hub.get_or_create(tick.symbol).update_trade(price=tick.price, qty=tick.qty, is_buyer_maker=False, ts_ms=tick.recv_ts_ms)
     candle_aggregator.process_tick(tick)
     await db_mgr.enqueue_tick(tick)
     # Fast non-blocking update of conflation buffer (never blocks the Binance feed)
@@ -596,6 +598,32 @@ async def get_voltarget_analytics(symbol: str, request: Request):
     except Exception as e:
         logger.error(f"Error computing VolTarget analytics for {symbol_clean}: {e}")
         return JSONResponse(status_code=500, content={"error": f"Failed to compute VolTarget backtest: {str(e)}"})
+
+@app.get("/analytics/microstructure/{symbol}")
+async def get_microstructure_analytics(symbol: str, request: Request):
+    """
+    Real-time Market Microstructure & Order Flow Imbalance (OFI) metrics.
+    Cont, Kukanov & Stoikov (2014) OFI, Stoikov (2018) Micro-Price, Kyle's Lambda & VPIN toxicity.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(client_ip):
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Rate limit exceeded (10 requests/minute). Please retry later."},
+        )
+    symbol_clean = symbol.upper().replace("/", "")
+    if symbol_clean not in get_allowed_symbols():
+        return JSONResponse(status_code=400, content={"error": f"Unsupported symbol {symbol_clean}"})
+    
+    tracker = microstructure_hub.get_or_create(symbol_clean)
+    curr = tracker.latest_metrics.to_dict() if tracker.latest_metrics else None
+    return {
+        "symbol": symbol_clean,
+        "current": curr,
+        "timeseries": tracker.get_timeseries(),
+        "timestamp_ms": int(time.time() * 1000),
+    }
+
 
 
 # ==========================================

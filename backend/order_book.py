@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import httpx
 import websockets
+from microstructure import microstructure_hub, MicrostructureTracker
 
 logger = logging.getLogger("order_book")
 
@@ -36,6 +37,17 @@ class OrderBookSnapshot:
     mid_price: float
     imbalance_pct: float
     timestamp_ms: int
+    micro_price: float = 0.0
+    micro_price_bias_bps: float = 0.0
+    ofi_l1: float = 0.0
+    deep_ofi: float = 0.0
+    cumulative_ofi: float = 0.0
+    ofi_zscore: float = 0.0
+    kyle_lambda: float = 0.0001
+    predicted_impact_bps: float = 0.0
+    vpin: float = 0.25
+    vpin_state: str = "LOW"
+    regime: str = "BALANCED"
 
     def to_dict(self) -> dict:
         return {
@@ -49,11 +61,22 @@ class OrderBookSnapshot:
             "mid_price": round(self.mid_price, 4),
             "imbalance_pct": round(self.imbalance_pct, 2),
             "timestamp_ms": self.timestamp_ms,
+            "micro_price": round(self.micro_price, 4),
+            "micro_price_bias_bps": round(self.micro_price_bias_bps, 3),
+            "ofi_l1": round(self.ofi_l1, 4),
+            "deep_ofi": round(self.deep_ofi, 4),
+            "cumulative_ofi": round(self.cumulative_ofi, 4),
+            "ofi_zscore": round(self.ofi_zscore, 2),
+            "kyle_lambda": round(self.kyle_lambda, 6),
+            "predicted_impact_bps": round(self.predicted_impact_bps, 3),
+            "vpin": round(self.vpin, 3),
+            "vpin_state": self.vpin_state,
+            "regime": self.regime,
         }
 
 
 class SymbolOrderBook:
-    """Maintains the top 20 order book for a single asset."""
+    """Maintains the top 20 order book for a single asset with quantitative microstructure analytics."""
 
     def __init__(self, symbol: str):
         self.symbol = symbol.upper()
@@ -68,6 +91,7 @@ class SymbolOrderBook:
         self._task: Optional[asyncio.Task] = None
         self._running = False
         self._listeners: Set[asyncio.Queue] = set()
+        self.micro_tracker = microstructure_hub.get_or_create(self.symbol)
 
     def update_from_raw(self, last_update_id: int, raw_bids: list, raw_asks: list, ts_ms: int) -> OrderBookSnapshot:
         self.last_update_id = last_update_id
@@ -114,6 +138,9 @@ class SymbolOrderBook:
         else:
             self.imbalance_pct = 0.0
 
+        # Compute quantitative microstructure metrics (OFI, Micro-Price, Kyle's Lambda)
+        micro_metrics = self.micro_tracker.update_book(self.bids, self.asks, self.last_ts_ms)
+
         snapshot = OrderBookSnapshot(
             symbol=self.symbol,
             last_update_id=self.last_update_id,
@@ -124,6 +151,17 @@ class SymbolOrderBook:
             mid_price=self.mid_price,
             imbalance_pct=self.imbalance_pct,
             timestamp_ms=self.last_ts_ms,
+            micro_price=micro_metrics.micro_price,
+            micro_price_bias_bps=micro_metrics.micro_price_bias_bps,
+            ofi_l1=micro_metrics.ofi_l1,
+            deep_ofi=micro_metrics.deep_ofi,
+            cumulative_ofi=micro_metrics.cumulative_ofi,
+            ofi_zscore=micro_metrics.ofi_zscore,
+            kyle_lambda=micro_metrics.kyle_lambda,
+            predicted_impact_bps=micro_metrics.predicted_impact_bps,
+            vpin=micro_metrics.vpin,
+            vpin_state=micro_metrics.vpin_state,
+            regime=micro_metrics.regime,
         )
 
         # Broadcast to subscribed queues
