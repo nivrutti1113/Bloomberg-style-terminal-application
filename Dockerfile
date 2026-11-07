@@ -33,7 +33,7 @@ RUN groupadd -g 1000 appgroup && \
 COPY --from=builder /install /usr/local
 
 # Copy backend application code
-COPY backend/adapters.py backend/analytics.py backend/app.py backend/candle_aggregator.py backend/database.py backend/order_book.py ./
+COPY backend/adapters.py backend/analytics.py backend/app.py backend/candle_aggregator.py backend/database.py backend/microstructure.py backend/order_book.py ./
 
 # Grant ownership to non-root user
 RUN chown -R appuser:appgroup /app
