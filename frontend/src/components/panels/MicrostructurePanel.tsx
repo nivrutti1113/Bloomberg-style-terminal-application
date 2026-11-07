@@ -71,8 +71,8 @@ export const MicrostructurePanel: React.FC<MicrostructurePanelProps> = ({ symbol
       let microBiasBps = incomingBook.micro_price_bias_bps ?? 0;
       let cumOfi = incomingBook.cumulative_ofi ?? pState.cumOfi;
       let ofiZscore = incomingBook.ofi_zscore ?? 0;
-      let vpin = incomingBook.vpin ?? 0.28;
-      let vpinState = incomingBook.vpin_state ?? "LOW";
+      const vpin = incomingBook.vpin ?? 0.28;
+      const vpinState = incomingBook.vpin_state ?? "LOW";
       let regime = incomingBook.regime ?? "BALANCED";
 
       // If backend didn't supply microstructure (e.g. direct Binance fallback mode), compute locally!
@@ -226,7 +226,7 @@ export const MicrostructurePanel: React.FC<MicrostructurePanelProps> = ({ symbol
       <div className="flex flex-wrap items-center justify-between pb-3 border-b border-[#222222] gap-2">
         <div className="flex items-center gap-3">
           <span className="text-[#FFB000] font-bold text-sm tracking-wider">
-            {targetSymbol} // MARKET MICROSTRUCTURE & OFI ALPHA
+            {targetSymbol} {'//'} MARKET MICROSTRUCTURE & OFI ALPHA
           </span>
           <span className="px-1.5 py-0.5 text-[10px] bg-[#111111] border border-[#333333] text-[#00E5FF]">
             CONT ET AL. (2014) MODEL
@@ -352,7 +352,7 @@ export const MicrostructurePanel: React.FC<MicrostructurePanelProps> = ({ symbol
         {/* Card 4: Kyle's Lambda & Price Impact */}
         <div className="bg-[#0A0A0A] border border-[#222222] p-3 rounded flex flex-col justify-between">
           <div className="text-[11px] text-[#888888] flex justify-between">
-            <span>KYLE'S LAMBDA (λ)</span>
+            <span>KYLE&apos;S LAMBDA (λ)</span>
             <span className="text-[#FFB000]">IMPACT MODEL</span>
           </div>
           <div className="my-2">
