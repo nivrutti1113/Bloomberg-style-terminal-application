@@ -828,6 +828,7 @@ WIKI_SLUGS = {
     "SOLUSDT": "Solana_(blockchain_platform)",
 }
 
+@app.get("/company/des/{symbol}")
 @app.get("/api/company/des/{symbol}")
 async def get_company_des(symbol: str):
     """
