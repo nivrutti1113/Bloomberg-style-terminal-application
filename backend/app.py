@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import json
+import httpx
 import logging
 import os
 import time
@@ -804,19 +805,7 @@ async def websocket_book_endpoint(websocket: WebSocket, symbol: str):
         book.unsubscribe(queue)
 
 
-if __name__ == "__main__":
-    import uvicorn
-    import os
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(
-        "app:app",
-        host="0.0.0.0",
-        port=port,
-        reload=False,
-        access_log=False,
-        ws_ping_interval=20,
-        ws_ping_timeout=20,
-    )
+
 
 
 # ==========================================
@@ -885,7 +874,7 @@ async def get_company_des(symbol: str):
     try:
         wiki_api = f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}"
         async with httpx.AsyncClient(timeout=4.0) as client:
-            w_res = await client.get(wiki_api, headers={"User-Agent": "FineversTerminal/1.0"})
+            w_res = await client.get(wiki_api, headers={"User-Agent": "FineversTerminal/1.0 (https://github.com/nivrutti1113/Finevers; contact@finevers.com)"})
             if w_res.status_code == 200:
                 w_json = w_res.json()
                 wiki_desc = w_json.get("extract", "")
@@ -921,3 +910,18 @@ async def get_company_des(symbol: str):
         "wikipedia_url": wiki_url,
         "sector": "Indian Equities & Derivatives" if is_nse else "Digital Assets & Layer 1",
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=port,
+        reload=False,
+        access_log=False,
+        ws_ping_interval=20,
+        ws_ping_timeout=20,
+    )

@@ -22,7 +22,7 @@ import { MicrostructurePanel } from "@/components/panels/MicrostructurePanel";
 import { SecurityDesPanel } from "@/components/panels/SecurityDesPanel";
 import { useTerminalStore } from "@/store/terminalStore";
 
-const STORAGE_KEY = "FINEVERS_TERMINAL_LAYOUT_V5";
+const STORAGE_KEY = "FINEVERS_TERMINAL_LAYOUT_V6";
 
 const defaultLayoutJson: IJsonModel = {
   global: {
@@ -363,7 +363,7 @@ export const TerminalLayout = forwardRef<TerminalLayoutRef, object>((_, ref) => 
     const config = node.getConfig() as
       | { symbol?: string; defaultTab?: "VOL" | "BT"; panelFunction?: string }
       | undefined;
-    const sym = config?.symbol || activeSymbol;
+    const sym = (config?.symbol && config.symbol !== 'BTCUSDT' ? config.symbol : activeSymbol) || 'BTCUSDT';
 
     switch (component) {
       case "watchlist":

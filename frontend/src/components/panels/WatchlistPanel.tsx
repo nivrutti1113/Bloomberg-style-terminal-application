@@ -145,6 +145,21 @@ export const WatchlistPanel: React.FC = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        setActiveSymbol(symbol);
+                        const input = document.querySelector('input[placeholder*="ENTER COMMAND"]') as HTMLInputElement;
+                        if (input) {
+                          input.value = `${symbol} DES`;
+                          input.form?.requestSubmit();
+                        }
+                      }}
+                      title="Open Company Description (DES)"
+                      className="text-[8px] px-1 py-0.2 bg-[#1A1A1A] hover:bg-[#FFB000] hover:text-black border border-[#333333] text-[#FFB000] font-bold"
+                    >
+                      DES
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
                         removeSymbol(symbol);
                       }}
                       title="Remove from watchlist"

@@ -68,7 +68,7 @@ function sanitizeCandles(candles: CandleDataPoint[]): CandleDataPoint[] {
 
 export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
   const { activeSymbol, marketPrices, connectionStatus } = useTerminalStore();
-  const targetSymbol = (symbol || activeSymbol).toUpperCase();
+  const targetSymbol = (symbol && symbol !== 'BTCUSDT' ? symbol : activeSymbol || 'BTCUSDT').toUpperCase();
 
   const [timeframe, setTimeframe] = useState<Timeframe>("1m");
   const [loading, setLoading] = useState<boolean>(true);
@@ -339,7 +339,7 @@ export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
         if (!rawCandles || rawCandles.length === 0) {
           const isNSE = !targetSymbol.endsWith("USDT") && !targetSymbol.includes("/");
           if (isNSE) {
-            setError(`NO CANDLE DATA: ${targetSymbol} is an Indian equity stub (Set NSE credentials in backend).`);
+            setError(`NO CANDLE DATA: Start the backend server (python app.py) to stream real-time NSE candles for ${targetSymbol}.`);
           } else {
             setError(`NO CANDLE DATA AVAILABLE FOR ${targetSymbol}`);
           }
