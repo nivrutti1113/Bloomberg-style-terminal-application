@@ -20,34 +20,72 @@ logger = logging.getLogger("terminal_analytics")
 async def fetch_daily_data(symbol: str, limit: int = 180) -> pd.DataFrame:
     """Fetch real historical daily OHLCV series for quant modeling with auto US fallback."""
     clean_symbol = symbol.upper().replace("/", "")
-    urls = [
-        f"https://api.binance.com/api/v3/klines?symbol={clean_symbol}&interval=1d&limit={limit}",
-        f"https://api.binance.us/api/v3/klines?symbol={clean_symbol}&interval=1d&limit={limit}",
-    ]
-
+    is_nse = not clean_symbol.endswith("USDT") and not ("/" in clean_symbol)
     records = []
-    for url in urls:
+
+    if is_nse:
+        # Yahoo Finance daily data for NSE equities
+        ticker = clean_symbol if clean_symbol.endswith(".NS") or clean_symbol.startswith("^") else f"{clean_symbol}.NS"
+        if clean_symbol in {"NIFTY50", "NIFTY"}:
+            ticker = "^NSEI"
+        elif clean_symbol == "BANKNIFTY":
+            ticker = "^NSEBANK"
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1y"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:
-                res = await client.get(url)
+                res = await client.get(url, headers=headers)
                 if res.status_code == 200:
-                    raw = res.json()
-                    for c in raw:
-                        records.append({
-                            "time_sec": int(c[0] // 1000),
-                            "date": pd.to_datetime(c[0], unit="ms").strftime("%Y-%m-%d"),
-                            "open": float(c[1]),
-                            "high": float(c[2]),
-                            "low": float(c[3]),
-                            "close": float(c[4]),
-                            "volume": float(c[5]),
-                        })
-                    if records:
-                        break
-                elif res.status_code == 451:
-                    continue
+                    data = res.json()
+                    result = data.get("chart", {}).get("result")
+                    if result:
+                        timestamps = result[0].get("timestamp", [])
+                        quotes = result[0].get("indicators", {}).get("quote", [{}])[0]
+                        opens = quotes.get("open", [])
+                        highs = quotes.get("high", [])
+                        lows = quotes.get("low", [])
+                        closes = quotes.get("close", [])
+                        volumes = quotes.get("volume", [])
+                        for i in range(len(timestamps)):
+                            if opens[i] is not None and closes[i] is not None:
+                                records.append({
+                                    "time_sec": int(timestamps[i]),
+                                    "date": pd.to_datetime(timestamps[i], unit="s").strftime("%Y-%m-%d"),
+                                    "open": float(opens[i]),
+                                    "high": float(highs[i]),
+                                    "low": float(lows[i]),
+                                    "close": float(closes[i]),
+                                    "volume": float(volumes[i] or 0.0),
+                                })
         except Exception as e:
-            logger.debug(f"Could not fetch daily klines from {url}: {e}")
+            logger.debug(f"Could not fetch daily klines for {clean_symbol} from Yahoo Finance: {e}")
+    else:
+        urls = [
+            f"https://api.binance.com/api/v3/klines?symbol={clean_symbol}&interval=1d&limit={limit}",
+            f"https://api.binance.us/api/v3/klines?symbol={clean_symbol}&interval=1d&limit={limit}",
+        ]
+        for url in urls:
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    res = await client.get(url)
+                    if res.status_code == 200:
+                        raw = res.json()
+                        for c in raw:
+                            records.append({
+                                "time_sec": int(c[0] // 1000),
+                                "date": pd.to_datetime(c[0], unit="ms").strftime("%Y-%m-%d"),
+                                "open": float(c[1]),
+                                "high": float(c[2]),
+                                "low": float(c[3]),
+                                "close": float(c[4]),
+                                "volume": float(c[5]),
+                            })
+                        if records:
+                            break
+                    elif res.status_code == 451:
+                        continue
+            except Exception as e:
+                logger.debug(f"Could not fetch daily klines from {url}: {e}")
 
     if not records:
         return pd.DataFrame()

@@ -19,6 +19,9 @@ const DEFAULT_SYMBOLS = [
   "RELIANCE",
   "TCS",
   "INFY",
+  "HDFCBANK",
+  "ICICIBANK",
+  "NIFTY50",
 ];
 
 const MAX_SPARKLINE_POINTS = 30;

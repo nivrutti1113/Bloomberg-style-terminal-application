@@ -322,11 +322,19 @@ async def lifespan(app: FastAPI):
     await pubsub_mgr.connect()
     await db_mgr.connect()
 
-    # Load initial 24h ticker snapshot from Binance API
+    # Load initial 24h ticker snapshot from Binance API & NSE
     snapshots = await binance_adapter.fetch_24h_snapshot()
     for sym, snap in snapshots.items():
         state.prices[sym] = snap
-    logger.info(f"Loaded 24h snapshot for {len(snapshots)} symbols.")
+    logger.info(f"Loaded 24h snapshot for {len(snapshots)} Binance symbols.")
+
+    try:
+        nse_snapshots = await nse_adapter.fetch_24h_snapshot()
+        for sym, snap in nse_snapshots.items():
+            state.prices[sym] = snap
+        logger.info(f"Loaded 24h snapshot for {len(nse_snapshots)} NSE symbols.")
+    except Exception as e:
+        logger.warning(f"Could not load initial NSE snapshot: {e}")
 
     # Warm up depth ladder for primary symbols
     asyncio.create_task(book_hub.ensure_started("BTCUSDT"))
@@ -809,3 +817,107 @@ if __name__ == "__main__":
         ws_ping_interval=20,
         ws_ping_timeout=20,
     )
+
+
+# ==========================================
+# Bloomberg DES (Company Overview / Security Description) Endpoint
+# ==========================================
+WIKI_SLUGS = {
+    "RELIANCE": "Reliance_Industries",
+    "TCS": "Tata_Consultancy_Services",
+    "INFY": "Infosys",
+    "HDFCBANK": "HDFC_Bank",
+    "ICICIBANK": "ICICI_Bank",
+    "SBIN": "State_Bank_of_India",
+    "BHARTIARTL": "Bharti_Airtel",
+    "NIFTY50": "NIFTY_50",
+    "BANKNIFTY": "Nifty_Bank",
+    "AAPL": "Apple_Inc.",
+    "TSLA": "Tesla,_Inc.",
+    "BTCUSDT": "Bitcoin",
+    "ETHUSDT": "Ethereum",
+    "SOLUSDT": "Solana_(blockchain_platform)",
+}
+
+@app.get("/api/company/des/{symbol}")
+async def get_company_des(symbol: str):
+    """
+    Bloomberg DES (Security Description / Company Overview) Function Endpoint.
+    Returns corporate profile, business summary, key financial metrics,
+    52-week price range, and exchange details without requiring API keys.
+    """
+    clean_sym = symbol.upper().replace("/", "").strip()
+    is_nse = not clean_sym.endswith("USDT") and not ("/" in clean_sym)
+
+    data_meta = {}
+    if is_nse:
+        from adapters import NSEAdapter
+        ticker = NSEAdapter.resolve_ticker(clean_sym)
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=5d"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                res = await client.get(url, headers=headers)
+                if res.status_code == 200:
+                    payload = res.json()
+                    res_list = payload.get("chart", {}).get("result")
+                    if res_list:
+                        data_meta = res_list[0].get("meta", {})
+        except Exception as e:
+            logger.debug(f"DES fetch meta error: {e}")
+    else:
+        price_obj = state.prices.get(clean_sym, {})
+        data_meta = {
+            "regularMarketPrice": price_obj.get("price", 0.0),
+            "regularMarketChangePercent": price_obj.get("change_pct_24h", 0.0),
+            "regularMarketDayHigh": price_obj.get("high_24h", 0.0),
+            "regularMarketDayLow": price_obj.get("low_24h", 0.0),
+            "regularMarketVolume": price_obj.get("volume_24h", 0.0),
+            "currency": "USDT",
+            "exchangeName": "BINANCE",
+            "longName": clean_sym,
+        }
+
+    slug = WIKI_SLUGS.get(clean_sym, clean_sym.replace("_", " "))
+    wiki_desc = ""
+    wiki_logo = ""
+    wiki_url = ""
+    try:
+        wiki_api = f"https://en.wikipedia.org/api/rest_v1/page/summary/{slug}"
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            w_res = await client.get(wiki_api, headers={"User-Agent": "FineversTerminal/1.0"})
+            if w_res.status_code == 200:
+                w_json = w_res.json()
+                wiki_desc = w_json.get("extract", "")
+                wiki_logo = w_json.get("thumbnail", {}).get("source", "")
+                wiki_url = w_json.get("content_urls", {}).get("desktop", {}).get("page", "")
+    except Exception as e:
+        logger.debug(f"Wiki summary fetch error: {e}")
+
+    if not wiki_desc:
+        if is_nse:
+            wiki_desc = f"{data_meta.get('longName', clean_sym)} is an Indian public company listed on the National Stock Exchange of India (NSE)."
+        else:
+            wiki_desc = f"{clean_sym} is a leading digital asset traded on global cryptocurrency markets including Binance."
+
+    curr_price = float(data_meta.get("regularMarketPrice", 0.0) or state.prices.get(clean_sym, {}).get("price", 0.0))
+    change_pct = float(data_meta.get("regularMarketChangePercent", 0.0) or state.prices.get(clean_sym, {}).get("change_pct_24h", 0.0))
+
+    return {
+        "symbol": clean_sym,
+        "name": data_meta.get("longName") or data_meta.get("shortName") or clean_sym,
+        "exchange": "NSE" if is_nse else "BINANCE",
+        "currency": "INR" if is_nse else "USD",
+        "price": curr_price,
+        "change_pct": round(change_pct, 2),
+        "day_high": float(data_meta.get("regularMarketDayHigh", curr_price)),
+        "day_low": float(data_meta.get("regularMarketDayLow", curr_price)),
+        "fifty_two_week_high": float(data_meta.get("fiftyTwoWeekHigh", 0.0)),
+        "fifty_two_week_low": float(data_meta.get("fiftyTwoWeekLow", 0.0)),
+        "volume": float(data_meta.get("regularMarketVolume", 0.0)),
+        "prev_close": float(data_meta.get("chartPreviousClose", 0.0) or data_meta.get("previousClose", 0.0)),
+        "description": wiki_desc,
+        "logo_url": wiki_logo,
+        "wikipedia_url": wiki_url,
+        "sector": "Indian Equities & Derivatives" if is_nse else "Digital Assets & Layer 1",
+    }

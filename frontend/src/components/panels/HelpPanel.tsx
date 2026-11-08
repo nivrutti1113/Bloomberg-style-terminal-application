@@ -33,6 +33,20 @@ export const HelpPanel: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-12 p-1.5 hover:bg-[#141414]">
+              <div className="col-span-2 text-[#FFB000] font-bold">&lt;SYM&gt; DES</div>
+              <div className="col-span-2 text-white">Security DES</div>
+              <div className="col-span-3 text-[#9A9A9A]">Company tear-sheet, profile &amp; 52W range</div>
+              <div className="col-span-5 text-[#2D9CDB]">RELIANCE DES, TCS DES, BTC DES</div>
+            </div>
+
+            <div className="grid grid-cols-12 p-1.5 hover:bg-[#141414]">
+              <div className="col-span-2 text-[#FFB000] font-bold">&lt;SYM&gt; OFI</div>
+              <div className="col-span-2 text-white">Microstructure</div>
+              <div className="col-span-3 text-[#9A9A9A]">Order flow imbalance &amp; Stoikov micro-price</div>
+              <div className="col-span-5 text-[#2D9CDB]">BTC OFI, SOL OFI</div>
+            </div>
+
+            <div className="grid grid-cols-12 p-1.5 hover:bg-[#141414]">
               <div className="col-span-2 text-[#FFB000] font-bold">&lt;SYM&gt; GP</div>
               <div className="col-span-2 text-white">Price Chart</div>
               <div className="col-span-3 text-[#9A9A9A]">TradingView candles &amp; indicators</div>
@@ -127,9 +141,17 @@ export const HelpPanel: React.FC = () => {
               <span className="text-[#00D26A] font-bold">F3</span>
               <span className="text-white">Open Order Book (OB)</span>
             </div>
-            <div className="flex justify-between py-0.5">
+            <div className="flex justify-between py-0.5 border-b border-[#1A1A1A]">
               <span className="text-[#00D26A] font-bold">F4</span>
               <span className="text-white">Open Time &amp; Sales (TS)</span>
+            </div>
+            <div className="flex justify-between py-0.5 border-b border-[#1A1A1A]">
+              <span className="text-[#00D26A] font-bold">F9</span>
+              <span className="text-white">Microstructure &amp; OFI (OFI)</span>
+            </div>
+            <div className="flex justify-between py-0.5">
+              <span className="text-[#00D26A] font-bold">F10</span>
+              <span className="text-white">Company Overview (DES)</span>
             </div>
           </div>
         </div>

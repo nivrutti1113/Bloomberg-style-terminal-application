@@ -132,7 +132,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onExecuteCommand }) => {
     ? AUTOCOMPLETE_ITEMS.filter(
         (item) =>
           item.command.toLowerCase().includes(commandInput.toLowerCase()) ||
-          item.label.toLowerCase().includes(commandInput.toLowerCase())
+          item.description.toLowerCase().includes(commandInput.toLowerCase())
       ).slice(0, 5)
     : [];
 
@@ -185,7 +185,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onExecuteCommand }) => {
                   className="px-2 py-1 flex items-center justify-between hover:bg-[#1A1A1A] cursor-pointer text-[11px]"
                 >
                   <span className="text-[#FFB000] font-bold">{item.command}</span>
-                  <span className="text-[#9A9A9A] text-[10px]">{item.desc}</span>
+                  <span className="text-[#9A9A9A] text-[10px]">{item.description}</span>
                 </div>
               ))}
             </div>

@@ -110,7 +110,26 @@ export interface CommandSuggestion {
   category: "NAVIGATION" | "WATCHLIST" | "SYSTEM";
 }
 
-export type PanelType = "watchlist" | "chart" | "orderbook" | "trades" | "analytics" | "metrics" | "help" | "microstructure";
+export type PanelType = "watchlist" | "chart" | "orderbook" | "trades" | "analytics" | "metrics" | "help" | "microstructure" | "company_des";
+
+export interface CompanyDesData {
+  symbol: string;
+  name: string;
+  exchange: string;
+  currency: string;
+  price: number;
+  change_pct: number;
+  day_high: number;
+  day_low: number;
+  fifty_two_week_high: number;
+  fifty_two_week_low: number;
+  volume: number;
+  prev_close: number;
+  description: string;
+  logo_url?: string;
+  wikipedia_url?: string;
+  sector?: string;
+}
 
 export interface LayoutTabConfig {
   id: string;

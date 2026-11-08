@@ -19,9 +19,10 @@ import { AnalyticsPanel } from "@/components/panels/AnalyticsPanel";
 import { MetricsPanel } from "@/components/panels/MetricsPanel";
 import { HelpPanel } from "@/components/panels/HelpPanel";
 import { MicrostructurePanel } from "@/components/panels/MicrostructurePanel";
+import { SecurityDesPanel } from "@/components/panels/SecurityDesPanel";
 import { useTerminalStore } from "@/store/terminalStore";
 
-const STORAGE_KEY = "FINEVERS_TERMINAL_LAYOUT_V4";
+const STORAGE_KEY = "FINEVERS_TERMINAL_LAYOUT_V5";
 
 const defaultLayoutJson: IJsonModel = {
   global: {
@@ -70,6 +71,13 @@ const defaultLayoutJson: IJsonModel = {
                 name: "BTC OB (ORDER BOOK)",
                 component: "orderbook",
                 id: "panel_orderbook_BTCUSDT",
+                config: { symbol: "BTCUSDT" },
+              },
+              {
+                type: "tab",
+                name: "BTC DES (COMPANY)",
+                component: "company_des",
+                id: "panel_des_BTCUSDT",
                 config: { symbol: "BTCUSDT" },
               },
               {
@@ -335,6 +343,10 @@ export const TerminalLayout = forwardRef<TerminalLayoutRef, object>((_, ref) => 
           e.preventDefault();
           openOrFocusTab("microstructure", activeSymbol, `${activeSymbol.replace(/USDT$/, "")} OFI (MICROSTRUCTURE)`, "OFI");
           break;
+        case "F10":
+          e.preventDefault();
+          openOrFocusTab("company_des", activeSymbol, `${activeSymbol.replace(/USDT$/, "")} DES (COMPANY)`, "DES");
+          break;
         case "Escape":
           closeActiveTab();
           break;
@@ -362,6 +374,8 @@ export const TerminalLayout = forwardRef<TerminalLayoutRef, object>((_, ref) => 
         return <OrderBookPanel symbol={sym} />;
       case "microstructure":
         return <MicrostructurePanel symbol={sym} />;
+      case "company_des":
+        return <SecurityDesPanel symbol={sym} />;
       case "trades":
         return <TimeAndSalesPanel symbol={sym} />;
       case "analytics":

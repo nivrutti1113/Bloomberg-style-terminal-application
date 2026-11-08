@@ -108,34 +108,72 @@ class RealtimeCandleAggregator:
         key = (sym, timeframe)
         local_closed = list(self.closed_history[key])
 
-        # Fetch historical warmup from Binance if local history has fewer than limit bars
+        # Fetch historical warmup: Yahoo Finance for NSE/Equities, Binance for Crypto
         historical_candles: List[dict] = []
+        is_nse = not sym.endswith("USDT") and not ("/" in sym)
         if len(local_closed) < limit:
-            urls = [
-                f"https://api.binance.com/api/v3/klines?symbol={sym}&interval={timeframe}&limit={limit}",
-                f"https://api.binance.us/api/v3/klines?symbol={sym}&interval={timeframe}&limit={limit}",
-            ]
-            for url in urls:
+            if is_nse:
+                # Yahoo Finance API (Zero Auth / Zero Key)
+                from adapters import NSEAdapter
+                ticker = NSEAdapter.resolve_ticker(sym)
+                tf_map = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "1d": "1d"}
+                range_map = {"1m": "1d", "5m": "5d", "15m": "1mo", "1h": "1mo", "1d": "1y"}
+                y_tf = tf_map.get(timeframe, "5m")
+                y_range = range_map.get(timeframe, "5d")
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval={y_tf}&range={y_range}"
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
                 try:
                     async with httpx.AsyncClient(timeout=6.0) as client:
-                        res = await client.get(url)
+                        res = await client.get(url, headers=headers)
                         if res.status_code == 200:
-                            raw = res.json()
-                            for c in raw:
-                                historical_candles.append({
-                                    "time": int(c[0] // 1000),
-                                    "open": float(c[1]),
-                                    "high": float(c[2]),
-                                    "low": float(c[3]),
-                                    "close": float(c[4]),
-                                    "volume": float(c[5]),
-                                })
-                            if historical_candles:
-                                break
-                        elif res.status_code == 451:
-                            continue
+                            data = res.json()
+                            result = data.get("chart", {}).get("result")
+                            if result:
+                                timestamps = result[0].get("timestamp", [])
+                                quotes = result[0].get("indicators", {}).get("quote", [{}])[0]
+                                opens = quotes.get("open", [])
+                                highs = quotes.get("high", [])
+                                lows = quotes.get("low", [])
+                                closes = quotes.get("close", [])
+                                volumes = quotes.get("volume", [])
+                                for i in range(len(timestamps)):
+                                    if opens[i] is not None and closes[i] is not None:
+                                        historical_candles.append({
+                                            "time": int(timestamps[i]),
+                                            "open": round(float(opens[i]), 2),
+                                            "high": round(float(highs[i]), 2),
+                                            "low": round(float(lows[i]), 2),
+                                            "close": round(float(closes[i]), 2),
+                                            "volume": round(float(volumes[i] or 0), 2),
+                                        })
                 except Exception as e:
-                    logger.debug(f"Could not fetch Binance klines warmup for {sym} from {url}: {e}")
+                    logger.debug(f"Could not fetch Yahoo Finance candles for {sym} ({ticker}): {e}")
+            else:
+                urls = [
+                    f"https://api.binance.com/api/v3/klines?symbol={sym}&interval={timeframe}&limit={limit}",
+                    f"https://api.binance.us/api/v3/klines?symbol={sym}&interval={timeframe}&limit={limit}",
+                ]
+                for url in urls:
+                    try:
+                        async with httpx.AsyncClient(timeout=6.0) as client:
+                            res = await client.get(url)
+                            if res.status_code == 200:
+                                raw = res.json()
+                                for c in raw:
+                                    historical_candles.append({
+                                        "time": int(c[0] // 1000),
+                                        "open": float(c[1]),
+                                        "high": float(c[2]),
+                                        "low": float(c[3]),
+                                        "close": float(c[4]),
+                                        "volume": float(c[5]),
+                                    })
+                                if historical_candles:
+                                    break
+                            elif res.status_code == 451:
+                                continue
+                    except Exception as e:
+                        logger.debug(f"Could not fetch Binance klines warmup for {sym} from {url}: {e}")
 
         # Merge historical candles with local closed and open bars
         candle_map: Dict[int, dict] = {}
