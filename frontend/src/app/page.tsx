@@ -3,6 +3,7 @@
 import React, { useEffect, useRef } from "react";
 import { TopBar } from "@/components/common/TopBar";
 import { StatusBar } from "@/components/common/StatusBar";
+import { ClockLockGate } from "@/components/common/ClockLockGate";
 import { TerminalLayout, TerminalLayoutRef } from "@/components/layout/TerminalLayout";
 import { wsManager } from "@/lib/ws/wsManager";
 import { useTerminalStore } from "@/store/terminalStore";
@@ -45,17 +46,19 @@ export default function TerminalPage() {
   };
 
   return (
-    <main className="w-screen h-screen flex flex-col overflow-hidden bg-[#000000] text-[#FFB000] font-mono select-none">
-      {/* Top Bloomberg Header & Command Bar */}
-      <TopBar onExecuteCommand={handleExecuteCommand} />
+    <ClockLockGate>
+      <main className="w-screen h-screen flex flex-col overflow-hidden bg-[#000000] text-[#FFB000] font-mono select-none">
+        {/* Top Bloomberg Header & Command Bar */}
+        <TopBar onExecuteCommand={handleExecuteCommand} />
 
-      {/* Main Dockable & Resizable Multi-Panel Terminal Space */}
-      <div className="flex-1 w-full h-full relative overflow-hidden">
-        <TerminalLayout ref={layoutRef} />
-      </div>
+        {/* Main Dockable & Resizable Multi-Panel Terminal Space */}
+        <div className="flex-1 w-full h-full relative overflow-hidden">
+          <TerminalLayout ref={layoutRef} />
+        </div>
 
-      {/* Bottom Telemetry & Status Bar */}
-      <StatusBar />
-    </main>
+        {/* Bottom Telemetry & Status Bar */}
+        <StatusBar />
+      </main>
+    </ClockLockGate>
   );
 }

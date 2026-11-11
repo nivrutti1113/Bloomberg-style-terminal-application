@@ -147,9 +147,18 @@ class TimeSyncManager {
         isBehind,
       };
       this.notify();
+      this.scheduleNextCheck();
     }
 
     return this.currentState;
+  }
+
+  private scheduleNextCheck() {
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+    }
+    const intervalMs = this.isDesynced ? 2500 : 30000;
+    this.checkInterval = setInterval(() => this.checkTimeSync(), intervalMs);
   }
 
   public getAccurateNow(): Date {

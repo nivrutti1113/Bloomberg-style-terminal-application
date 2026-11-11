@@ -359,24 +359,24 @@ export const TopBar: React.FC<TopBarProps> = ({ onExecuteCommand }) => {
 
             {/* Step-by-Step Instructions */}
             <div className="flex flex-col gap-2.5 bg-[#0F0F0F] border border-[#222222] p-3 rounded">
-              <span className="text-[#FFB000] font-bold border-b border-[#222222] pb-1">
-                LAPTOP TIME KAISE SAHI KAREIN (WINDOWS 10 / 11):
+              <span className="text-[#FFB000] font-bold border-b border-[#222222] pb-1 uppercase tracking-wider">
+                HOW TO SYNCHRONIZE YOUR CLOCK (WINDOWS 10 / 11):
               </span>
               <ol className="list-decimal list-inside space-y-1.5 text-[#CCCCCC] text-[11px] leading-relaxed">
                 <li>
-                  Keyboard par <kbd className="px-1.5 py-0.5 bg-[#222222] border border-[#444444] text-[#FFB000] rounded">Win + I</kbd> dabakar <strong>Windows Settings</strong> kholein.
+                  Press <kbd className="px-1.5 py-0.5 bg-[#222222] border border-[#444444] text-[#FFB000] rounded">Win + I</kbd> on your keyboard to open <strong>Windows Settings</strong>.
                 </li>
                 <li>
-                  Left menu me <strong>Time & Language</strong> par click karein, fir <strong>Date & Time</strong> select karein.
+                  Select <strong>Time & Language</strong> from the left sidebar, then click <strong>Date & Time</strong>.
                 </li>
                 <li>
-                  Check karein ki <strong>&quot;Set time automatically&quot;</strong> switch <strong>ON</strong> hai.
+                  Verify that the <strong>&quot;Set time automatically&quot;</strong> toggle is turned <strong>ON</strong>.
                 </li>
                 <li>
-                  Niche <em>&quot;Synchronize your clock&quot;</em> ke aage bane <strong>&quot;Sync now&quot;</strong> button par click karein.
+                  Under <em>Additional settings</em>, click the <strong>&quot;Sync now&quot;</strong> button to force NTP update.
                 </li>
                 <li>
-                  Apna Time zone check karein: <em>&quot;(UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi&quot;</em> hona chahiye.
+                  Ensure your <strong>Time zone</strong> is set accurately for your geographic region.
                 </li>
               </ol>
             </div>
@@ -395,7 +395,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onExecuteCommand }) => {
                 onClick={() => setShowTimeModal(false)}
                 className="px-4 py-1 bg-[#FFB000] text-black font-bold hover:bg-white cursor-pointer transition-colors"
               >
-                THEEK HAI (CLOSE)
+                CLOSE DIAGNOSTICS
               </button>
             </div>
           </div>
