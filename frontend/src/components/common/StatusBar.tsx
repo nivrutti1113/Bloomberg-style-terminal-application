@@ -3,15 +3,16 @@
 import React, { useEffect, useState } from "react";
 import { useTerminalStore } from "@/store/terminalStore";
 import { wsManager } from "@/lib/ws/wsManager";
-import { timeSync, TimeSyncState } from "@/lib/timeSync";
+import { timeSync, TimeSyncState, INITIAL_TIME_SYNC_STATE } from "@/lib/timeSync";
 
 export const StatusBar: React.FC = () => {
   const { connectionStatus, latencyMs, p99LatencyMs, symbols, activeSymbol } = useTerminalStore();
   const [ticksPerSec, setTicksPerSec] = useState<number>(0);
   const [isFallback, setIsFallback] = useState<boolean>(false);
-  const [timeSyncState, setTimeSyncState] = useState<TimeSyncState>(timeSync.getState());
+  const [timeSyncState, setTimeSyncState] = useState<TimeSyncState>(INITIAL_TIME_SYNC_STATE);
 
   useEffect(() => {
+    setTimeSyncState(timeSync.getState());
     const unsubTime = timeSync.subscribe(setTimeSyncState);
     const interval = setInterval(() => {
       setTicksPerSec(wsManager.getTicksPerSec());

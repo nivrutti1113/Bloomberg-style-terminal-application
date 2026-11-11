@@ -15,6 +15,18 @@ export interface TimeSyncState {
   isBehind: boolean;
 }
 
+export const INITIAL_TIME_SYNC_STATE: TimeSyncState = {
+  offsetMs: 0,
+  driftSeconds: 0,
+  isDesynced: false,
+  lastCheckedMs: 0,
+  userTimezone: "UTC",
+  serverTimeIso: "",
+  deviceTimeIso: "",
+  driftFormatted: "0s",
+  isBehind: false,
+};
+
 function formatDrift(offsetMs: number): { formatted: string; isBehind: boolean } {
   const isBehind = offsetMs > 0;
   const absSec = Math.round(Math.abs(offsetMs) / 1000);
@@ -47,6 +59,10 @@ class TimeSyncManager {
   }
 
   public async checkTimeSync(): Promise<TimeSyncState> {
+    if (typeof window === "undefined") {
+      return INITIAL_TIME_SYNC_STATE;
+    }
+
     const startMs = Date.now();
     let authoritativeMs = 0;
 
@@ -122,10 +138,17 @@ class TimeSyncManager {
   }
 
   public getAccurateNow(): Date {
+    if (typeof window === "undefined") {
+      return new Date(0);
+    }
     return new Date(Date.now() + this.offsetMs);
   }
 
   public getState(): TimeSyncState {
+    if (typeof window === "undefined") {
+      return INITIAL_TIME_SYNC_STATE;
+    }
+
     const userTz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "Unknown";
     const now = Date.now();
     const driftSec = Math.round(Math.abs(this.offsetMs) / 1000);
@@ -146,7 +169,9 @@ class TimeSyncManager {
 
   public subscribe(cb: (state: TimeSyncState) => void): () => void {
     this.listeners.push(cb);
-    cb(this.getState());
+    if (typeof window !== "undefined") {
+      cb(this.getState());
+    }
     return () => {
       this.listeners = this.listeners.filter((l) => l !== cb);
     };
