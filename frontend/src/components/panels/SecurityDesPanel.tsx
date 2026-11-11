@@ -94,7 +94,8 @@ export const SecurityDesPanel: React.FC<SecurityDesPanelProps> = ({ symbol }) =>
         }
 
         const isNse = !targetSymbol.endsWith("USDT") && !targetSymbol.includes("/");
-        const p = marketPrices[targetSymbol];
+        const storePrices = useTerminalStore.getState().marketPrices;
+        const p = storePrices[targetSymbol];
         const currPrice = p?.price ?? (isNse ? 1320.0 : 65000.0);
 
         if (isMounted) {
@@ -131,7 +132,7 @@ export const SecurityDesPanel: React.FC<SecurityDesPanelProps> = ({ symbol }) =>
     return () => {
       isMounted = false;
     };
-  }, [targetSymbol, marketPrices]);
+  }, [targetSymbol]);
 
   const liveStorePrice = marketPrices[targetSymbol];
   const currentPrice = liveStorePrice?.price ?? data?.price ?? 0;

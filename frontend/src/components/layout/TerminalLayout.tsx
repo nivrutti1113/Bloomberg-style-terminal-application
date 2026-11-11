@@ -22,7 +22,7 @@ import { MicrostructurePanel } from "@/components/panels/MicrostructurePanel";
 import { SecurityDesPanel } from "@/components/panels/SecurityDesPanel";
 import { useTerminalStore } from "@/store/terminalStore";
 
-const STORAGE_KEY = "FINEVERS_TERMINAL_LAYOUT_V6";
+const STORAGE_KEY = "FINEVERS_TERMINAL_LAYOUT_V8";
 
 const defaultLayoutJson: IJsonModel = {
   global: {
@@ -61,42 +61,42 @@ const defaultLayoutJson: IJsonModel = {
             children: [
               {
                 type: "tab",
-                name: "BTC GP (CHART)",
+                name: "GP (CHART)",
                 component: "chart",
                 id: "panel_chart_BTCUSDT",
                 config: { symbol: "BTCUSDT" },
               },
               {
                 type: "tab",
-                name: "BTC OB (ORDER BOOK)",
+                name: "OB (ORDER BOOK)",
                 component: "orderbook",
                 id: "panel_orderbook_BTCUSDT",
                 config: { symbol: "BTCUSDT" },
               },
               {
                 type: "tab",
-                name: "BTC DES (COMPANY)",
+                name: "DES (COMPANY PROFILE)",
                 component: "company_des",
                 id: "panel_des_BTCUSDT",
                 config: { symbol: "BTCUSDT" },
               },
               {
                 type: "tab",
-                name: "BTC OFI (MICROSTRUCTURE)",
+                name: "OFI (MICROSTRUCTURE)",
                 component: "microstructure",
                 id: "panel_microstructure_BTCUSDT",
                 config: { symbol: "BTCUSDT" },
               },
               {
                 type: "tab",
-                name: "BTC VOL (HAR)",
+                name: "VOL (HAR)",
                 component: "analytics",
                 id: "panel_analytics_VOL_BTCUSDT",
                 config: { symbol: "BTCUSDT", defaultTab: "VOL" },
               },
               {
                 type: "tab",
-                name: "BTC BT (BACKTEST)",
+                name: "BT (BACKTEST)",
                 component: "analytics",
                 id: "panel_analytics_BT_BTCUSDT",
                 config: { symbol: "BTCUSDT", defaultTab: "BT" },
@@ -201,6 +201,9 @@ export const TerminalLayout = forwardRef<TerminalLayoutRef, object>((_, ref) => 
         const subType = panelFunction === "BT" ? "BT" : "VOL";
         tabId = `panel_analytics_${subType}_${sym}`;
         tabTitle = title || (subType === "BT" ? `${cleanTicker} BT (BACKTEST)` : `${cleanTicker} VOL (HAR)`);
+      } else if (component === "company_des") {
+        tabId = `panel_des_${sym}`;
+        tabTitle = title || `${cleanTicker} DES (COMPANY)`;
       } else if (component === "watchlist") {
         tabId = "panel_watchlist";
         tabTitle = "WATCHLIST (WL)";
@@ -216,6 +219,33 @@ export const TerminalLayout = forwardRef<TerminalLayoutRef, object>((_, ref) => 
       const existing = model.getNodeById(tabId);
       if (existing) {
         model.doAction(Actions.selectTab(tabId));
+        return;
+      }
+
+      // Check if an existing tab for this component is already open (e.g. switch to DES tab)
+      let existingComponentNodeId: string | null = null;
+      model.visitNodes((n) => {
+        if (!existingComponentNodeId && n.getType() === "tab") {
+          const tabNode = n as TabNode;
+          const nodeComp = tabNode.getComponent();
+          if (
+            nodeComp === component ||
+            (component === "company_des" && (nodeComp === "company_des" || tabNode.getId().startsWith("panel_des")))
+          ) {
+            existingComponentNodeId = tabNode.getId();
+          }
+        }
+      });
+
+      if (existingComponentNodeId) {
+        if (tabTitle) {
+          try {
+            model.doAction(Actions.updateNodeAttributes(existingComponentNodeId, { name: tabTitle }));
+          } catch {
+            // ignore if update unsupported
+          }
+        }
+        model.doAction(Actions.selectTab(existingComponentNodeId));
         return;
       }
 
@@ -356,6 +386,28 @@ export const TerminalLayout = forwardRef<TerminalLayoutRef, object>((_, ref) => 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [openOrFocusTab, closeActiveTab, activeSymbol]);
+
+  // Listen for custom finevers:open-tab event from any component (e.g. Watchlist [DES] button)
+  useEffect(() => {
+    const handleCustomOpenTab = (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        component: string;
+        symbol?: string;
+        title?: string;
+        panelFunction?: string;
+      }>;
+      if (customEvent.detail) {
+        openOrFocusTab(
+          customEvent.detail.component,
+          customEvent.detail.symbol,
+          customEvent.detail.title,
+          customEvent.detail.panelFunction
+        );
+      }
+    };
+    window.addEventListener("finevers:open-tab", handleCustomOpenTab);
+    return () => window.removeEventListener("finevers:open-tab", handleCustomOpenTab);
+  }, [openOrFocusTab]);
 
   // Tab factory
   const factory = (node: TabNode) => {

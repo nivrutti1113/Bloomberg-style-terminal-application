@@ -265,6 +265,18 @@ export const TopBar: React.FC<TopBarProps> = ({ onExecuteCommand }) => {
           >
             F8: HELP
           </button>
+          <button
+            onClick={() => onExecuteCommand("OFI", activeSymbol, "microstructure")}
+            className="hover:text-[#FFB000] hover:bg-[#1A1A1A] px-1 border border-[#2A2A2A]"
+          >
+            F9: OFI
+          </button>
+          <button
+            onClick={() => onExecuteCommand("DES", activeSymbol, "company_des")}
+            className="hover:text-black hover:bg-[#FFB000] text-[#FFB000] font-bold px-1.5 border border-[#FFB000]/60 bg-[#1A1500]"
+          >
+            F10: DES (Profile)
+          </button>
         </div>
 
         {/* Inline Command Error Message */}
