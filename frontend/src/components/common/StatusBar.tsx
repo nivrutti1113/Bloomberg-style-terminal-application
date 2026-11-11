@@ -3,24 +3,30 @@
 import React, { useEffect, useState } from "react";
 import { useTerminalStore } from "@/store/terminalStore";
 import { wsManager } from "@/lib/ws/wsManager";
+import { timeSync, TimeSyncState } from "@/lib/timeSync";
 
 export const StatusBar: React.FC = () => {
   const { connectionStatus, latencyMs, p99LatencyMs, symbols, activeSymbol } = useTerminalStore();
   const [ticksPerSec, setTicksPerSec] = useState<number>(0);
   const [isFallback, setIsFallback] = useState<boolean>(false);
+  const [timeSyncState, setTimeSyncState] = useState<TimeSyncState>(timeSync.getState());
 
   useEffect(() => {
+    const unsubTime = timeSync.subscribe(setTimeSyncState);
     const interval = setInterval(() => {
       setTicksPerSec(wsManager.getTicksPerSec());
       setIsFallback(wsManager.isFallbackMode());
     }, 500);
 
-    return () => clearInterval(interval);
+    return () => {
+      unsubTime();
+      clearInterval(interval);
+    };
   }, []);
 
   return (
     <footer className="w-full bg-[#000000] border-t border-[#2A2A2A] text-[10px] font-mono select-none px-2 py-1 flex items-center justify-between tabular-nums text-[#9A9A9A]">
-      {/* Left side: Engine status, Ticks/Sec, Latency */}
+      {/* Left side: Engine status, Ticks/Sec, Latency, NTP Clock */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5">
           <span className="text-[#666666]">FEED:</span>
@@ -59,6 +65,13 @@ export const StatusBar: React.FC = () => {
           </span>
         </div>
 
+        <div className="hidden sm:flex items-center gap-1.5">
+          <span className="text-[#666666]">NTP CLOCK:</span>
+          <span className={timeSyncState.isDesynced ? "text-[#FF3B30] font-bold animate-pulse" : "text-[#00D26A]"}>
+            {timeSyncState.isDesynced ? `SKEW (${timeSyncState.driftFormatted})` : "SYNCED"}
+          </span>
+        </div>
+
         <div className="hidden md:flex items-center gap-1.5">
           <span className="text-[#666666]">ACTIVE:</span>
           <span className="text-[#FFB000] font-bold">{activeSymbol}</span>
@@ -69,7 +82,7 @@ export const StatusBar: React.FC = () => {
       {/* Right side: Honest Data Label & Keyboard Help Hint */}
       <div className="flex items-center gap-3">
         <span className="text-[#666666] hidden lg:inline">
-          [ESC: Close Panel | /: Command Bar | F1-F8: Quick Panels]
+          [ESC: Close Panel | /: Command Bar | F1-F10: Quick Panels]
         </span>
         <span className="text-[#FFB000] bg-[#1A1A1A] px-1.5 py-0.2 border border-[#2A2A2A] text-[9px]">
           INTERNET_STREAM (NON-COLOCATED)

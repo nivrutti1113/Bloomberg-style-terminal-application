@@ -828,6 +828,18 @@ WIKI_SLUGS = {
     "SOLUSDT": "Solana_(blockchain_platform)",
 }
 
+@app.get("/time")
+@app.get("/api/time")
+async def get_server_time():
+    """Returns authoritative server epoch milliseconds and ISO timestamp for clock skew detection."""
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+    return {
+        "server_time_ms": int(now_utc.timestamp() * 1000),
+        "server_time_iso": now_utc.isoformat(),
+        "status": "ok",
+    }
+
 @app.get("/company/des/{symbol}")
 @app.get("/api/company/des/{symbol}")
 async def get_company_des(symbol: str):

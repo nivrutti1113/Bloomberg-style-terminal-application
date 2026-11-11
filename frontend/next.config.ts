@@ -37,6 +37,14 @@ const nextConfig: NextConfig = {
         destination: `${backendUrl}/metrics`,
       },
       {
+        source: "/time",
+        destination: `${backendUrl}/time`,
+      },
+      {
+        source: "/api/time",
+        destination: `${backendUrl}/api/time`,
+      },
+      {
         source: "/analytics/:path*",
         destination: `${backendUrl}/analytics/:path*`,
       },
