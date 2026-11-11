@@ -1,7 +1,10 @@
 /**
  * timeSync.ts - Institutional Clock Skew & Timezone Health Monitor
  * Detects whether the local laptop clock is out of sync with authoritative NTP / Server time.
+ * Implements useSyncExternalStore for 100% React 19 Compiler & Next.js 16 SSG compliance.
  */
+
+import { useSyncExternalStore } from "react";
 
 export interface TimeSyncState {
   offsetMs: number; // authoritativeTime - deviceTime
@@ -47,12 +50,12 @@ function formatDrift(offsetMs: number): { formatted: string; isBehind: boolean }
 class TimeSyncManager {
   private offsetMs = 0;
   private isDesynced = false;
-  private listeners: ((state: TimeSyncState) => void)[] = [];
+  private listeners: (() => void)[] = [];
   private checkInterval: NodeJS.Timeout | null = null;
+  private currentState: TimeSyncState = INITIAL_TIME_SYNC_STATE;
 
   constructor() {
     if (typeof window !== "undefined") {
-      // Immediate check, then periodic check every 30s
       setTimeout(() => this.checkTimeSync(), 500);
       this.checkInterval = setInterval(() => this.checkTimeSync(), 30000);
     }
@@ -127,14 +130,26 @@ class TimeSyncManager {
     if (authoritativeMs > 0) {
       const now = Date.now();
       this.offsetMs = authoritativeMs - now;
-      const driftSeconds = Math.round(Math.abs(this.offsetMs) / 1000);
-      // Flag as desynced if difference is 45 seconds or greater
-      this.isDesynced = driftSeconds >= 45;
+      const driftSec = Math.round(Math.abs(this.offsetMs) / 1000);
+      this.isDesynced = driftSec >= 45;
+      const { formatted, isBehind } = formatDrift(this.offsetMs);
+      const userTz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "Unknown";
+
+      this.currentState = {
+        offsetMs: this.offsetMs,
+        driftSeconds: driftSec,
+        isDesynced: this.isDesynced,
+        lastCheckedMs: now,
+        userTimezone: userTz,
+        serverTimeIso: new Date(now + this.offsetMs).toISOString(),
+        deviceTimeIso: new Date(now).toISOString(),
+        driftFormatted: formatted,
+        isBehind,
+      };
+      this.notify();
     }
 
-    const state = this.getState();
-    this.notify(state);
-    return state;
+    return this.currentState;
   }
 
   public getAccurateNow(): Date {
@@ -148,39 +163,20 @@ class TimeSyncManager {
     if (typeof window === "undefined") {
       return INITIAL_TIME_SYNC_STATE;
     }
-
-    const userTz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "Unknown";
-    const now = Date.now();
-    const driftSec = Math.round(Math.abs(this.offsetMs) / 1000);
-    const { formatted, isBehind } = formatDrift(this.offsetMs);
-
-    return {
-      offsetMs: this.offsetMs,
-      driftSeconds: driftSec,
-      isDesynced: this.isDesynced,
-      lastCheckedMs: now,
-      userTimezone: userTz,
-      serverTimeIso: new Date(now + this.offsetMs).toISOString(),
-      deviceTimeIso: new Date(now).toISOString(),
-      driftFormatted: formatted,
-      isBehind,
-    };
+    return this.currentState;
   }
 
-  public subscribe(cb: (state: TimeSyncState) => void): () => void {
+  public subscribe(cb: () => void): () => void {
     this.listeners.push(cb);
-    if (typeof window !== "undefined") {
-      cb(this.getState());
-    }
     return () => {
       this.listeners = this.listeners.filter((l) => l !== cb);
     };
   }
 
-  private notify(state: TimeSyncState) {
+  private notify() {
     for (const listener of this.listeners) {
       try {
-        listener(state);
+        listener();
       } catch {
         // ignore subscriber errors
       }
@@ -195,3 +191,15 @@ class TimeSyncManager {
 }
 
 export const timeSync = new TimeSyncManager();
+
+/**
+ * useTimeSync - React hook powered by useSyncExternalStore
+ * Cleanly subscribes to clock skew updates without cascading renders or setState in effect.
+ */
+export function useTimeSync(): TimeSyncState {
+  return useSyncExternalStore(
+    (callback) => timeSync.subscribe(callback),
+    () => timeSync.getState(),
+    () => INITIAL_TIME_SYNC_STATE
+  );
+}

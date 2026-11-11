@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useTerminalStore } from "@/store/terminalStore";
 import { AUTOCOMPLETE_ITEMS, parseCommand } from "@/commands/commandParser";
 import { WsConnectionStatus } from "@/types/market";
-import { timeSync, TimeSyncState, INITIAL_TIME_SYNC_STATE } from "@/lib/timeSync";
+import { useTimeSync, timeSync } from "@/lib/timeSync";
 
 interface TopBarProps {
   onExecuteCommand: (action: string, symbol?: string, panelType?: string) => void;
@@ -28,18 +28,9 @@ export const TopBar: React.FC<TopBarProps> = ({ onExecuteCommand }) => {
   const [utcTime, setUtcTime] = useState<string>("");
   const [istTime, setIstTime] = useState<string>("");
   const [isFocused, setIsFocused] = useState<boolean>(false);
-  const [timeSyncState, setTimeSyncState] = useState<TimeSyncState>(INITIAL_TIME_SYNC_STATE);
+  const timeSyncState = useTimeSync();
   const [showTimeModal, setShowTimeModal] = useState<boolean>(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  // Subscribe to TimeSync skew monitor
-  useEffect(() => {
-    setTimeSyncState(timeSync.getState());
-    const unsub = timeSync.subscribe((state) => {
-      setTimeSyncState(state);
-    });
-    return unsub;
-  }, []);
 
   // Clocks: UTC + IST (computed from authoritative timeSync.getAccurateNow())
   useEffect(() => {
