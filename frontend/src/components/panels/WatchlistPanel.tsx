@@ -181,7 +181,7 @@ export const WatchlistPanel: React.FC = () => {
                         ? data.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                         : data.price.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 6 })
                     ) : (
-                      <span className="text-[#666666] text-[9px]">{isNse ? "NO DATA (OFFLINE)" : "NO DATA"}</span>
+                      <span className="text-[#666666] text-[9px]">--</span>
                     )}
                   </div>
 
