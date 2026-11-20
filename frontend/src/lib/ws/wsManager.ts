@@ -15,7 +15,7 @@
  */
 
 import { OrderBookData, Tick, WsConnectionStatus } from "@/types/market";
-import { WS_URL } from "@/lib/config";
+import { API_URL, WS_URL } from "@/lib/config";
 
 type TickListener = (ticks: Tick[]) => void;
 type StatusListener = (status: WsConnectionStatus, latencyMs: number) => void;
@@ -32,13 +32,14 @@ class WebSocketManager {
   private isUsingFallback: boolean = false;
   private status: WsConnectionStatus = "DISCONNECTED";
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 20;
-  private baseBackoffMs = 1000;
-  private maxBackoffMs = 15000;
+  private maxReconnectAttempts = 2;
+  private baseBackoffMs = 800;
+  private maxBackoffMs = 5000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private staleCheckTimer: ReturnType<typeof setInterval> | null = null;
   private syntheticDriftTimer: ReturnType<typeof setInterval> | null = null;
+  private backendRecoveryTimer: ReturnType<typeof setInterval> | null = null;
 
   private lastTickTimeMs: number = 0;
   private lastHeartbeatTimeMs: number = 0;
@@ -114,9 +115,11 @@ class WebSocketManager {
       if (this.isUsingFallback) {
         this.setStatus("DIRECT_FALLBACK");
         this.startSyntheticDrift();
+        this.startBackendRecoveryProbe();
       } else {
         this.setStatus("CONNECTED");
         this.stopSyntheticDrift();
+        this.stopBackendRecoveryProbe();
       }
       this.startHeartbeat();
 
@@ -246,6 +249,35 @@ class WebSocketManager {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+  }
+
+  private startBackendRecoveryProbe(): void {
+    if (this.backendRecoveryTimer || typeof window === "undefined") return;
+    this.backendRecoveryTimer = setInterval(async () => {
+      try {
+        const probeUrl = `${API_URL || "http://localhost:8000"}/metrics`;
+        const res = await fetch(probeUrl, { method: "GET", signal: AbortSignal.timeout(2000) });
+        if (res.ok) {
+          console.log("[WSManager] Backend detected online! Auto-switching from fallback to backend stream.");
+          this.stopBackendRecoveryProbe();
+          this.isUsingFallback = false;
+          this.reconnectAttempts = 0;
+          if (this.ws) {
+            this.ws.close();
+          }
+          this.connect();
+        }
+      } catch {
+        // Backend still offline, stay on resilient fallback
+      }
+    }, 6000);
+  }
+
+  private stopBackendRecoveryProbe(): void {
+    if (this.backendRecoveryTimer) {
+      clearInterval(this.backendRecoveryTimer);
+      this.backendRecoveryTimer = null;
     }
   }
 

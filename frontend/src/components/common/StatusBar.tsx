@@ -37,7 +37,7 @@ export const StatusBar: React.FC = () => {
           <span className="text-[#666666]">STATUS:</span>
           <span
             className={
-              connectionStatus === "CONNECTED"
+              connectionStatus === "CONNECTED" || connectionStatus === "DIRECT_FALLBACK"
                 ? "text-[#00D26A] font-bold"
                 : connectionStatus === "STALE"
                 ? "text-[#FF3B30] font-bold"
