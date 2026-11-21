@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
  * marketHours.ts - National Stock Exchange of India (NSE) Market Session Engine.
@@ -113,20 +113,60 @@ export function getNseMarketSession(nowMs?: number): MarketSessionInfo {
   };
 }
 
+const SERVER_SESSION: MarketSessionInfo = {
+  isOpen: false,
+  isRegular: false,
+  isPreMarket: false,
+  session: "CLOSED",
+  badgeText: "MARKET CLOSED",
+  detailText: "NSE Trading is closed (Session hours: 09:15 - 15:30 IST Mon-Fri)",
+  nextSessionText: "Regular trading opens at 09:15 IST",
+};
+
+let currentSnapshot: MarketSessionInfo =
+  typeof window !== "undefined" ? getNseMarketSession() : SERVER_SESSION;
+
+const listeners = new Set<() => void>();
+
+function updateSnapshot() {
+  const next = getNseMarketSession();
+  if (
+    currentSnapshot.session !== next.session ||
+    currentSnapshot.isOpen !== next.isOpen ||
+    currentSnapshot.badgeText !== next.badgeText
+  ) {
+    currentSnapshot = next;
+    listeners.forEach((listener) => listener());
+  }
+}
+
+let tickerStarted = false;
+function ensureTicker() {
+  if (typeof window === "undefined" || tickerStarted) return;
+  tickerStarted = true;
+  setInterval(updateSnapshot, 10000);
+}
+
+function subscribeNseSession(callback: () => void): () => void {
+  ensureTicker();
+  listeners.add(callback);
+  return () => {
+    listeners.delete(callback);
+  };
+}
+
+function getClientSnapshot(): MarketSessionInfo {
+  return currentSnapshot;
+}
+
+function getServerSnapshot(): MarketSessionInfo {
+  return SERVER_SESSION;
+}
+
 /**
  * React hook to retrieve and automatically refresh the current NSE market session.
- * Defers time access to client-side useEffect to prevent prerendering errors and hydration mismatches.
+ * Uses useSyncExternalStore for hydration-safe external subscription without setState in effects.
  */
-export function useNseMarketSession(): MarketSessionInfo | null {
-  const [session, setSession] = useState<MarketSessionInfo | null>(null);
-
-  useEffect(() => {
-    setSession(getNseMarketSession());
-    const interval = setInterval(() => {
-      setSession(getNseMarketSession());
-    }, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
-  return session;
+export function useNseMarketSession(): MarketSessionInfo {
+  return useSyncExternalStore(subscribeNseSession, getClientSnapshot, getServerSnapshot);
 }

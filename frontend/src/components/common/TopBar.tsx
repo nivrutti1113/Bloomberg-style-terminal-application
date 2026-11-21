@@ -5,7 +5,7 @@ import { useTerminalStore } from "@/store/terminalStore";
 import { AUTOCOMPLETE_ITEMS, parseCommand } from "@/commands/commandParser";
 import { WsConnectionStatus } from "@/types/market";
 import { useTimeSync, timeSync } from "@/lib/timeSync";
-import { isIndianSymbol, getNseMarketSession, MarketSessionInfo } from "@/lib/marketHours";
+import { isIndianSymbol, useNseMarketSession } from "@/lib/marketHours";
 
 interface TopBarProps {
   onExecuteCommand: (action: string, symbol?: string, panelType?: string) => void;
@@ -32,13 +32,12 @@ export const TopBar: React.FC<TopBarProps> = ({ onExecuteCommand }) => {
   const timeSyncState = useTimeSync();
   const [showTimeModal, setShowTimeModal] = useState<boolean>(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [nseSession, setNseSession] = useState<MarketSessionInfo | null>(null);
+  const nseSession = useNseMarketSession();
 
   // Clocks: UTC + IST (computed from authoritative timeSync.getAccurateNow())
   useEffect(() => {
     const updateTime = () => {
       const now = timeSync.getAccurateNow();
-      setNseSession(getNseMarketSession(now.getTime()));
       setUtcTime(
         now.toLocaleTimeString("en-US", {
           timeZone: "UTC",
