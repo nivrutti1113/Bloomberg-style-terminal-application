@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useTerminalStore } from "@/store/terminalStore";
 import { wsManager } from "@/lib/ws/wsManager";
 import { OrderBookData } from "@/types/market";
+import { isIndianSymbol, getNseMarketSession } from "@/lib/marketHours";
 
 interface OrderBookPanelProps {
   symbol?: string;
@@ -132,6 +133,12 @@ export const OrderBookPanel: React.FC<OrderBookPanelProps> = ({ symbol }) => {
 
     const driftInterval = setInterval(() => {
       if (isMounted && wsManager.isFallbackMode()) {
+        const isIndian = isIndianSymbol(targetSymbol);
+        const session = getNseMarketSession();
+        if (isIndian && !session.isOpen) {
+          // Keep frozen during closed session
+          return;
+        }
         setBookData((prev) => {
           if (!prev) return prev;
           const p = useTerminalStore.getState().marketPrices[targetSymbol]?.price || prev.mid_price;
@@ -170,6 +177,11 @@ export const OrderBookPanel: React.FC<OrderBookPanelProps> = ({ symbol }) => {
         <div className="flex items-center gap-2">
           <span className="text-[#FFB000] font-bold text-[12px]">{targetSymbol} OB</span>
           <span className="text-[10px] text-[#666666]">[TOP 20 LADDER]</span>
+          {isIndianSymbol(targetSymbol) && !getNseMarketSession().isOpen && (
+            <span className="text-[#888888] bg-[#1A1A1A] border border-[#333333] px-1 py-0.2 text-[9px] font-bold">
+              [CLOSED • FROZEN]
+            </span>
+          )}
           {loading && <span className="text-[#FFB000] text-[10px] animate-pulse">[SYNCING...]</span>}
         </div>
 

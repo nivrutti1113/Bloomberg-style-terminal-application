@@ -16,6 +16,7 @@
 
 import { OrderBookData, Tick, WsConnectionStatus } from "@/types/market";
 import { API_URL, WS_URL } from "@/lib/config";
+import { getNseMarketSession } from "@/lib/marketHours";
 
 type TickListener = (ticks: Tick[]) => void;
 type StatusListener = (status: WsConnectionStatus, latencyMs: number) => void;
@@ -296,20 +297,24 @@ class WebSocketManager {
 
     this.syntheticDriftTimer = setInterval(() => {
       if (this.status !== "CONNECTED") {
-        const sym = nseSymbols[Math.floor(Math.random() * nseSymbols.length)];
-        const tickSize = sym === "NIFTY50" ? 0.5 : 0.05;
-        const drift = (Math.random() - 0.495) * tickSize * 2;
-        livePrices[sym] = Number(Math.max(1, livePrices[sym] + drift).toFixed(2));
-        const qty = Math.round(Math.random() * 200 + 10);
+        const session = getNseMarketSession();
+        // Strict Market Hours Gate: Only drift NSE symbols during active market hours (09:15-15:30 IST Mon-Fri)
+        if (session.isOpen) {
+          const sym = nseSymbols[Math.floor(Math.random() * nseSymbols.length)];
+          const tickSize = sym === "NIFTY50" ? 0.5 : 0.05;
+          const drift = (Math.random() - 0.495) * tickSize * 2;
+          livePrices[sym] = Number(Math.max(1, livePrices[sym] + drift).toFixed(2));
+          const qty = Math.round(Math.random() * 200 + 10);
 
-        this.queueTick({
-          symbol: sym,
-          price: livePrices[sym],
-          qty,
-          venue: "NSE",
-          exch_ts_ms: Date.now(),
-          recv_ts_ms: Date.now(),
-        });
+          this.queueTick({
+            symbol: sym,
+            price: livePrices[sym],
+            qty,
+            venue: "NSE",
+            exch_ts_ms: Date.now(),
+            recv_ts_ms: Date.now(),
+          });
+        }
       }
     }, 250);
   }

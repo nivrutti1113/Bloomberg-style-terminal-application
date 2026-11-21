@@ -5,6 +5,7 @@ import { useTerminalStore } from "@/store/terminalStore";
 import { AUTOCOMPLETE_ITEMS, parseCommand } from "@/commands/commandParser";
 import { WsConnectionStatus } from "@/types/market";
 import { useTimeSync, timeSync } from "@/lib/timeSync";
+import { isIndianSymbol, getNseMarketSession } from "@/lib/marketHours";
 
 interface TopBarProps {
   onExecuteCommand: (action: string, symbol?: string, panelType?: string) => void;
@@ -31,6 +32,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onExecuteCommand }) => {
   const timeSyncState = useTimeSync();
   const [showTimeModal, setShowTimeModal] = useState<boolean>(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const nseSession = getNseMarketSession();
 
   // Clocks: UTC + IST (computed from authoritative timeSync.getAccurateNow())
   useEffect(() => {
@@ -311,6 +313,29 @@ export const TopBar: React.FC<TopBarProps> = ({ onExecuteCommand }) => {
               F10: DES (Profile)
             </button>
           </div>
+
+          {/* Active Symbol Market Session Indicator */}
+          {!commandError && (
+            <div className="flex items-center gap-1.5 shrink-0 pl-2">
+              <span className="text-[#666666]">SESSION:</span>
+              {isIndianSymbol(activeSymbol) ? (
+                <span
+                  className={`px-1.5 py-0.2 border text-[9px] font-bold ${
+                    nseSession.isOpen
+                      ? "bg-[#00D26A]/15 text-[#00D26A] border-[#00D26A]/40"
+                      : "bg-[#1A1A1A] text-[#888888] border-[#333333]"
+                  }`}
+                  title={nseSession.detailText}
+                >
+                  NSE: {nseSession.badgeText}
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.2 bg-[#0E1520] text-[#2D9CDB] border border-[#2D9CDB]/40 text-[9px] font-bold" title="Cryptocurrency operates 24/7/365 continuous trading">
+                  CRYPTO: 24/7 LIVE
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Inline Command Error Message */}
           {commandError && (

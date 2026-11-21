@@ -23,6 +23,7 @@ import {
   calculateBollingerBands,
   calculateRSI,
 } from "@/lib/indicators";
+import { isIndianSymbol, getNseMarketSession } from "@/lib/marketHours";
 
 interface ChartPanelProps {
   symbol?: string;
@@ -564,6 +565,11 @@ export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
           {priceChangePct !== undefined && (
             <span className={`tabular-nums font-semibold ${priceChangePct >= 0 ? "text-[#00D26A]" : "text-[#FF3B30]"}`}>
               {priceChangePct >= 0 ? "+" : ""}{priceChangePct.toFixed(2)}%
+            </span>
+          )}
+          {isIndianSymbol(targetSymbol) && !getNseMarketSession().isOpen && (
+            <span className="text-[9px] px-1.5 py-0.2 bg-[#1A1A1A] text-[#888888] border border-[#333333] rounded font-bold" title="NSE Trading Closed (09:15-15:30 IST Mon-Fri)">
+              [NSE: CLOSED • LTP FROZEN]
             </span>
           )}
           {loading && <span className="text-[#FFB000] text-[10px] animate-pulse">[LOADING CANDLES...]</span>}

@@ -252,6 +252,22 @@ class BinanceAdapter(MarketDataAdapter):
         self._connected = False
 
 
+def is_nse_market_open() -> bool:
+    """
+    Checks if the National Stock Exchange of India (NSE) is in active session.
+    IST = UTC + 5:30.
+    Regular Trading Session: Monday - Friday, 09:15 - 15:30 IST.
+    """
+    import datetime
+    utc_now = datetime.datetime.now(datetime.timezone.utc)
+    ist_now = utc_now + datetime.timedelta(hours=5, minutes=30)
+    # Weekends: Saturday (5) or Sunday (6)
+    if ist_now.weekday() in (5, 6):
+        return False
+    time_minutes = ist_now.hour * 60 + ist_now.minute
+    return 555 <= time_minutes <= 930
+
+
 class NSEAdapter(MarketDataAdapter):
     """
     NSE Market Data Adapter (Broker API interface + Zero-Auth Public Engine).
@@ -389,14 +405,22 @@ class NSEAdapter(MarketDataAdapter):
     async def _public_stream_loop(self) -> None:
         """
         Public polling loop for Indian equities without API keys.
-        Periodically emits normalized Ticks so watchlist and order books stay live.
+        During active NSE market hours (09:15-15:30 IST Mon-Fri), polls live updates.
+        When market is closed (nights, weekends), establishes steady closing prices without artificial trade spam.
         """
         import random
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        has_emitted_closed_snapshot = False
 
         while self._running:
             try:
-                # Refresh snapshot every 4 seconds
+                market_open = is_nse_market_open()
+
+                # If market is closed and we already emitted the closing prices, sleep and wait
+                if not market_open and has_emitted_closed_snapshot:
+                    await asyncio.sleep(20.0)
+                    continue
+
                 for sym in self.symbols:
                     if not self._running:
                         break
@@ -418,7 +442,7 @@ class NSEAdapter(MarketDataAdapter):
                                             venue="NSE",
                                             symbol=sym,
                                             price=price,
-                                            qty=round(random.uniform(5.0, 150.0), 2),
+                                            qty=round(random.uniform(5.0, 150.0), 2) if market_open else 0.0,
                                             exch_ts_ms=now_ms,
                                             recv_ts_ms=now_ms,
                                         )
@@ -430,7 +454,12 @@ class NSEAdapter(MarketDataAdapter):
                         pass
                     await asyncio.sleep(0.3)
 
-                await asyncio.sleep(3.5)
+                if not market_open:
+                    has_emitted_closed_snapshot = True
+                    await asyncio.sleep(30.0)
+                else:
+                    has_emitted_closed_snapshot = False
+                    await asyncio.sleep(3.5)
             except asyncio.CancelledError:
                 break
             except Exception as e:
