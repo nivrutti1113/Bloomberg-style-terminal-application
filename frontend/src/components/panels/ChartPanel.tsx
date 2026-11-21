@@ -23,7 +23,7 @@ import {
   calculateBollingerBands,
   calculateRSI,
 } from "@/lib/indicators";
-import { isIndianSymbol, getNseMarketSession } from "@/lib/marketHours";
+import { isIndianSymbol, useNseMarketSession } from "@/lib/marketHours";
 
 interface ChartPanelProps {
   symbol?: string;
@@ -142,6 +142,7 @@ function generateRealisticFallbackCandles(
 export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
   const { activeSymbol, marketPrices, connectionStatus } = useTerminalStore();
   const targetSymbol = (symbol && symbol !== 'BTCUSDT' ? symbol : activeSymbol || 'BTCUSDT').toUpperCase();
+  const nseSession = useNseMarketSession();
 
   const [timeframe, setTimeframe] = useState<Timeframe>("1m");
   const [loading, setLoading] = useState<boolean>(true);
@@ -567,7 +568,7 @@ export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
               {priceChangePct >= 0 ? "+" : ""}{priceChangePct.toFixed(2)}%
             </span>
           )}
-          {isIndianSymbol(targetSymbol) && !getNseMarketSession().isOpen && (
+          {isIndianSymbol(targetSymbol) && nseSession && !nseSession.isOpen && (
             <span className="text-[9px] px-1.5 py-0.2 bg-[#1A1A1A] text-[#888888] border border-[#333333] rounded font-bold" title="NSE Trading Closed (09:15-15:30 IST Mon-Fri)">
               [NSE: CLOSED • LTP FROZEN]
             </span>

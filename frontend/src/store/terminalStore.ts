@@ -47,7 +47,7 @@ const SEED_PRICES: Record<string, { price: number; change: number; pct: number; 
 
 function createInitialMarketPrices(): Record<string, SymbolPrice> {
   const result: Record<string, SymbolPrice> = {};
-  const now = Date.now();
+  const now = typeof window !== "undefined" ? Date.now() : 0;
   for (const [sym, data] of Object.entries(SEED_PRICES)) {
     const isCrypto = sym.endsWith("USDT");
     const spark = Array.from({ length: 15 }, (_, i) => data.price * (1 + (Math.sin(i) * 0.004)));

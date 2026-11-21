@@ -4,7 +4,7 @@ import React, { useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTerminalStore } from "@/store/terminalStore";
 import { Sparkline } from "@/components/common/Sparkline";
-import { getNseMarketSession } from "@/lib/marketHours";
+import { useNseMarketSession } from "@/lib/marketHours";
 
 export const WatchlistPanel: React.FC = () => {
   const {
@@ -18,7 +18,7 @@ export const WatchlistPanel: React.FC = () => {
 
   const [marketFilter, setMarketFilter] = useState<"ALL" | "CRYPTO" | "NSE">("ALL");
   const parentRef = useRef<HTMLDivElement | null>(null);
-  const nseSession = getNseMarketSession();
+  const nseSession = useNseMarketSession();
 
   const isNseSymbol = (s: string) => !s.endsWith("USDT") && !s.includes("/");
 
@@ -104,8 +104,7 @@ export const WatchlistPanel: React.FC = () => {
               const isNse = isNseSymbol(symbol);
 
               // Calculate tick flash classes
-              const now = Date.now();
-              const isFlashing = data?.flashTimestamp && now - data.flashTimestamp < 350;
+              const isFlashing = Boolean(data?.flashTimestamp && typeof window !== "undefined" && Date.now() - data.flashTimestamp < 350);
               let flashBg = "";
               if (isFlashing) {
                 flashBg =
@@ -147,13 +146,13 @@ export const WatchlistPanel: React.FC = () => {
                     {isNse && (
                       <span
                         className={`text-[7.5px] px-1 py-0.2 rounded font-bold border ${
-                          nseSession.isOpen
+                          nseSession?.isOpen
                             ? "bg-[#00D26A]/10 text-[#00D26A] border-[#00D26A]/30"
                             : "bg-[#1F1F1F] text-[#888888] border-[#333333]"
                         }`}
-                        title={nseSession.detailText}
+                        title={nseSession?.detailText || "NSE Market Session"}
                       >
-                        {nseSession.isOpen ? "LIVE" : "CLOSED"}
+                        {nseSession ? (nseSession.isOpen ? "LIVE" : "CLOSED") : "--"}
                       </span>
                     )}
                     <button

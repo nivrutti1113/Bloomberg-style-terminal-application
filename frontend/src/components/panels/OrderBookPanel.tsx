@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useTerminalStore } from "@/store/terminalStore";
 import { wsManager } from "@/lib/ws/wsManager";
 import { OrderBookData } from "@/types/market";
-import { isIndianSymbol, getNseMarketSession } from "@/lib/marketHours";
+import { isIndianSymbol, getNseMarketSession, useNseMarketSession } from "@/lib/marketHours";
 
 interface OrderBookPanelProps {
   symbol?: string;
@@ -55,6 +55,7 @@ function generateSeedOrderBook(symbol: string, currentPrice?: number): OrderBook
 export const OrderBookPanel: React.FC<OrderBookPanelProps> = ({ symbol }) => {
   const { activeSymbol, connectionStatus } = useTerminalStore();
   const targetSymbol = (symbol || activeSymbol).toUpperCase();
+  const nseSession = useNseMarketSession();
 
   const [bookData, setBookData] = useState<OrderBookData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -177,7 +178,7 @@ export const OrderBookPanel: React.FC<OrderBookPanelProps> = ({ symbol }) => {
         <div className="flex items-center gap-2">
           <span className="text-[#FFB000] font-bold text-[12px]">{targetSymbol} OB</span>
           <span className="text-[10px] text-[#666666]">[TOP 20 LADDER]</span>
-          {isIndianSymbol(targetSymbol) && !getNseMarketSession().isOpen && (
+          {isIndianSymbol(targetSymbol) && nseSession && !nseSession.isOpen && (
             <span className="text-[#888888] bg-[#1A1A1A] border border-[#333333] px-1 py-0.2 text-[9px] font-bold">
               [CLOSED • FROZEN]
             </span>

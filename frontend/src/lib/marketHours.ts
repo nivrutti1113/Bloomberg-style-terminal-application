@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 /**
  * marketHours.ts - National Stock Exchange of India (NSE) Market Session Engine.
  *
@@ -46,11 +48,13 @@ export function isIndianSymbol(symbol: string, venue?: string): boolean {
 /**
  * Calculates current market session for the National Stock Exchange of India (NSE).
  * Converts local/UTC timestamps strictly to Indian Standard Time (UTC + 05:30).
+ * Safely defaults to Date.now() on client and 0 in SSR/build environments to avoid blocking prerenders.
  */
-export function getNseMarketSession(nowMs: number = Date.now()): MarketSessionInfo {
-  // Convert current timestamp to IST (UTC + 5 hours 30 minutes)
+export function getNseMarketSession(nowMs?: number): MarketSessionInfo {
+  // Use nowMs, or Date.now() only if running in the browser, fallback to 0 during SSR/prerender
+  const ms = nowMs !== undefined ? nowMs : (typeof window !== "undefined" ? Date.now() : 0);
   const istOffsetMs = 5.5 * 60 * 60 * 1000;
-  const istDate = new Date(nowMs + istOffsetMs);
+  const istDate = new Date(ms + istOffsetMs);
 
   const dayOfWeek = istDate.getUTCDay(); // 0 = Sunday, 6 = Saturday
   const hours = istDate.getUTCHours();
@@ -107,4 +111,22 @@ export function getNseMarketSession(nowMs: number = Date.now()): MarketSessionIn
     detailText: "NSE Trading is closed (Session hours: 09:15 - 15:30 IST Mon-Fri)",
     nextSessionText: isBeforeOpen ? "Regular trading opens today at 09:15 IST" : "Regular trading opens tomorrow at 09:15 IST",
   };
+}
+
+/**
+ * React hook to retrieve and automatically refresh the current NSE market session.
+ * Defers time access to client-side useEffect to prevent prerendering errors and hydration mismatches.
+ */
+export function useNseMarketSession(): MarketSessionInfo | null {
+  const [session, setSession] = useState<MarketSessionInfo | null>(null);
+
+  useEffect(() => {
+    setSession(getNseMarketSession());
+    const interval = setInterval(() => {
+      setSession(getNseMarketSession());
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return session;
 }
