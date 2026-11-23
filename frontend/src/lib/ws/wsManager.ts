@@ -16,7 +16,7 @@
 
 import { OrderBookData, Tick, WsConnectionStatus } from "@/types/market";
 import { API_URL, WS_URL } from "@/lib/config";
-import { getNseMarketSession } from "@/lib/marketHours";
+import { useTerminalStore } from "@/store/terminalStore";
 
 type TickListener = (ticks: Tick[]) => void;
 type StatusListener = (status: WsConnectionStatus, latencyMs: number) => void;
@@ -282,41 +282,62 @@ class WebSocketManager {
     }
   }
 
+  private isPollingEquity = false;
+
   private startSyntheticDrift(): void {
     if (this.syntheticDriftTimer) return;
-    const nseSymbols = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "NIFTY50"];
-    const basePrices: Record<string, number> = {
-      RELIANCE: 1320.4,
-      TCS: 3914.8,
-      INFY: 1842.1,
-      HDFCBANK: 1738.5,
-      ICICIBANK: 1258.9,
-      NIFTY50: 24145.0,
-    };
-    const livePrices: Record<string, number> = { ...basePrices };
 
+    // Immediately fetch real market snapshot
+    this.pollLiveEquitySnapshot();
+
+    // Poll every 3 seconds during market hours, or 10 seconds when closed
     this.syntheticDriftTimer = setInterval(() => {
-      if (this.status !== "CONNECTED") {
-        const session = getNseMarketSession();
-        // Strict Market Hours Gate: Only drift NSE symbols during active market hours (09:15-15:30 IST Mon-Fri)
-        if (session.isOpen) {
-          const sym = nseSymbols[Math.floor(Math.random() * nseSymbols.length)];
-          const tickSize = sym === "NIFTY50" ? 0.5 : 0.05;
-          const drift = (Math.random() - 0.495) * tickSize * 2;
-          livePrices[sym] = Number(Math.max(1, livePrices[sym] + drift).toFixed(2));
-          const qty = Math.round(Math.random() * 200 + 10);
+      this.pollLiveEquitySnapshot();
+    }, 3000);
+  }
 
+  private async pollLiveEquitySnapshot(): Promise<void> {
+    if (typeof window === "undefined" || this.isPollingEquity) return;
+    this.isPollingEquity = true;
+    try {
+      const symbols = useTerminalStore.getState().symbols;
+      const indianSymbols = symbols.filter(
+        (s) => !s.endsWith("USDT") && !s.includes("/")
+      );
+      if (indianSymbols.length === 0) return;
+
+      const res = await fetch(
+        `/api/market/snapshot?symbols=${encodeURIComponent(indianSymbols.join(","))}`
+      );
+      if (!res.ok) return;
+
+      const json = await res.json();
+      if (json.status === "SUCCESS" && json.data) {
+        useTerminalStore.getState().updateFullSnapshots(json.data);
+
+        // Queue ticks for animated updates and sparklines
+        for (const snap of Object.values(json.data) as Array<{
+          symbol: string;
+          price: number;
+          qty?: number;
+          venue?: "NSE" | "BSE" | "BINANCE";
+          exch_ts_ms?: number;
+        }>) {
           this.queueTick({
-            symbol: sym,
-            price: livePrices[sym],
-            qty,
-            venue: "NSE",
-            exch_ts_ms: Date.now(),
+            symbol: snap.symbol,
+            price: snap.price,
+            qty: snap.qty || 10,
+            venue: snap.venue || "NSE",
+            exch_ts_ms: snap.exch_ts_ms || Date.now(),
             recv_ts_ms: Date.now(),
           });
         }
       }
-    }, 250);
+    } catch {
+      // Ignore background network failure
+    } finally {
+      this.isPollingEquity = false;
+    }
   }
 
   private stopSyntheticDrift(): void {

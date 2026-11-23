@@ -13,7 +13,8 @@ interface OrderBookPanelProps {
 function generateSeedOrderBook(symbol: string, currentPrice?: number): OrderBookData {
   const isNse = !symbol.endsWith("USDT") && !symbol.includes("/");
   const tickSize = isNse ? (symbol.includes("NIFTY") ? 0.5 : 0.05) : 0.1;
-  const p = currentPrice && currentPrice > 0 ? currentPrice : isNse ? 1320.0 : 68450.0;
+  const storePrice = useTerminalStore.getState().marketPrices[symbol]?.price;
+  const p = currentPrice && currentPrice > 0 ? currentPrice : storePrice && storePrice > 0 ? storePrice : isNse ? 1360.0 : 68450.0;
 
   const bids: [number, number, number][] = [];
   const asks: [number, number, number][] = [];

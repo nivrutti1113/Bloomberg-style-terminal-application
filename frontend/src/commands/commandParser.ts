@@ -37,6 +37,17 @@ const KNOWN_EQUITIES = new Set([
   "NIFTY50",
   "NIFTY",
   "BANKNIFTY",
+  "SENSEX",
+  "BSEX",
+  "TATAMOTORS",
+  "ITC",
+  "LT",
+  "HINDUNILVR",
+  "KOTAKBANK",
+  "AXISBANK",
+  "MARUTI",
+  "SUNPHARMA",
+  "BAJFINANCE",
   "AAPL",
   "TSLA",
   "MSFT",
@@ -47,7 +58,14 @@ const KNOWN_EQUITIES = new Set([
 
 function normalizeSymbol(raw: string): string {
   const s = raw.toUpperCase().replace("/", "").trim();
-  if (KNOWN_EQUITIES.has(s) || s.endsWith(".NS") || s.startsWith("^") || s.endsWith("USDT") || s.includes("/")) {
+  if (
+    KNOWN_EQUITIES.has(s) ||
+    s.endsWith(".NS") ||
+    s.endsWith(".BO") ||
+    s.startsWith("^") ||
+    s.endsWith("USDT") ||
+    s.includes("/")
+  ) {
     return s;
   }
   if (["BTC", "ETH", "SOL", "BNB", "DOGE", "XRP", "ADA", "AVAX", "LINK", "NEAR"].includes(s)) {

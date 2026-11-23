@@ -285,12 +285,15 @@ class NSEAdapter(MarketDataAdapter):
         "BHARTIARTL",
         "NIFTY50",
         "BANKNIFTY",
+        "SENSEX",
     ]
 
     NSE_TICKER_OVERRIDES = {
         "NIFTY50": "^NSEI",
         "NIFTY": "^NSEI",
         "BANKNIFTY": "^NSEBANK",
+        "SENSEX": "^BSESN",
+        "BSEX": "^BSESN",
     }
 
     @classmethod
@@ -298,7 +301,7 @@ class NSEAdapter(MarketDataAdapter):
         s = symbol.upper().replace("/", "").strip()
         if s in cls.NSE_TICKER_OVERRIDES:
             return cls.NSE_TICKER_OVERRIDES[s]
-        if s.endswith(".NS") or s.startswith("^"):
+        if s.endswith(".NS") or s.endswith(".BO") or s.startswith("^"):
             return s
         return f"{s}.NS"
 

@@ -21,7 +21,11 @@ const DEFAULT_SYMBOLS = [
   "INFY",
   "HDFCBANK",
   "ICICIBANK",
+  "SBIN",
+  "BHARTIARTL",
   "NIFTY50",
+  "BANKNIFTY",
+  "SENSEX",
 ];
 
 const MAX_SPARKLINE_POINTS = 30;
@@ -37,12 +41,16 @@ const SEED_PRICES: Record<string, { price: number; change: number; pct: number; 
   AVAXUSDT: { price: 28.4, change: 1.1, pct: 4.02, vol: 85000 },
   LINKUSDT: { price: 12.35, change: 0.25, pct: 2.06, vol: 62000 },
   NEARUSDT: { price: 4.85, change: 0.15, pct: 3.19, vol: 145000 },
-  RELIANCE: { price: 1320.4, change: 8.5, pct: 0.65, vol: 4820000 },
-  TCS: { price: 3914.8, change: 16.4, pct: 0.42, vol: 2150000 },
-  INFY: { price: 1842.1, change: -5.7, pct: -0.31, vol: 3540000 },
-  HDFCBANK: { price: 1738.5, change: 15.2, pct: 0.88, vol: 6210000 },
-  ICICIBANK: { price: 1258.9, change: 14.3, pct: 1.15, vol: 5430000 },
-  NIFTY50: { price: 24145.0, change: 84.5, pct: 0.35, vol: 18200000 },
+  RELIANCE: { price: 1360.1, change: -17.4, pct: -1.26, vol: 4946000 },
+  TCS: { price: 2488.6, change: 112.4, pct: 4.73, vol: 3139000 },
+  INFY: { price: 1124.5, change: 26.5, pct: 2.41, vol: 4793000 },
+  HDFCBANK: { price: 829.8, change: -16.2, pct: -1.91, vol: 23600000 },
+  ICICIBANK: { price: 1612.9, change: -27.1, pct: -1.65, vol: 5037000 },
+  SBIN: { price: 1148.1, change: -17.0, pct: -1.46, vol: 5897000 },
+  BHARTIARTL: { price: 2139.3, change: -22.4, pct: -1.04, vol: 1449000 },
+  NIFTY50: { price: 25606.3, change: -194.3, pct: -0.75, vol: 18200000 },
+  BANKNIFTY: { price: 63393.95, change: -1241.25, pct: -1.92, vol: 8900000 },
+  SENSEX: { price: 83335.58, change: -584.13, pct: -0.70, vol: 12500000 },
 };
 
 function createInitialMarketPrices(): Record<string, SymbolPrice> {
@@ -92,6 +100,7 @@ interface TerminalState {
   setActiveSymbol: (symbol: string) => void;
   setActivePanelFunction: (fn: string) => void;
   updateTicks: (ticks: Tick[]) => void;
+  updateFullSnapshots: (snapshots: Record<string, Partial<SymbolPrice>>) => void;
   setConnectionStatus: (status: WsConnectionStatus, latencyMs: number) => void;
   setTicksPerSec: (rate: number) => void;
   setCommandInput: (val: string) => void;
@@ -193,6 +202,48 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       }
 
       return { marketPrices: updatedPrices };
+    });
+  },
+
+  updateFullSnapshots: (snapshots: Record<string, Partial<SymbolPrice>>) => {
+    set((state) => {
+      const updated = { ...state.marketPrices };
+      const now = Date.now();
+      for (const [sym, data] of Object.entries(snapshots)) {
+        const upper = sym.toUpperCase();
+        const existing = updated[upper];
+        const newPrice = data.price ?? existing?.price ?? 0;
+        let direction: "up" | "down" | null = null;
+        if (existing && newPrice > 0) {
+          if (newPrice > existing.price) direction = "up";
+          else if (newPrice < existing.price) direction = "down";
+          else direction = existing.flashDirection ?? null;
+        }
+        const history = existing?.priceHistory ? [...existing.priceHistory] : [];
+        if (newPrice > 0 && (history.length === 0 || history[history.length - 1] !== newPrice)) {
+          history.push(newPrice);
+          if (history.length > MAX_SPARKLINE_POINTS) history.shift();
+        }
+
+        updated[upper] = {
+          symbol: upper,
+          venue: data.venue ?? existing?.venue ?? "NSE",
+          price: newPrice,
+          qty: data.qty ?? existing?.qty ?? 10,
+          change_24h: data.change_24h ?? existing?.change_24h ?? 0,
+          change_pct_24h: data.change_pct_24h ?? existing?.change_pct_24h ?? 0,
+          high_24h: data.high_24h ?? existing?.high_24h ?? newPrice,
+          low_24h: data.low_24h ?? existing?.low_24h ?? newPrice,
+          volume_24h: data.volume_24h ?? existing?.volume_24h ?? 0,
+          open_price: data.open_price ?? existing?.open_price ?? newPrice,
+          exch_ts_ms: data.exch_ts_ms ?? existing?.exch_ts_ms ?? now,
+          recv_ts_ms: now,
+          priceHistory: history,
+          flashDirection: direction,
+          flashTimestamp: direction ? now : existing?.flashTimestamp,
+        };
+      }
+      return { marketPrices: updated };
     });
   },
 

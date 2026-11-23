@@ -33,6 +33,17 @@ const INDIAN_EQUITY_SYMBOLS = new Set([
   "NIFTY50",
   "NIFTY",
   "BANKNIFTY",
+  "SENSEX",
+  "BSEX",
+  "TATAMOTORS",
+  "ITC",
+  "LT",
+  "HINDUNILVR",
+  "KOTAKBANK",
+  "AXISBANK",
+  "MARUTI",
+  "SUNPHARMA",
+  "BAJFINANCE",
 ]);
 
 /**
@@ -41,7 +52,15 @@ const INDIAN_EQUITY_SYMBOLS = new Set([
 export function isIndianSymbol(symbol: string, venue?: string): boolean {
   if (venue === "NSE" || venue === "BSE") return true;
   const s = symbol.toUpperCase().replace("/", "").trim();
-  if (s.endsWith(".NS") || s.startsWith("^NSE") || s.startsWith("^CNX")) return true;
+  if (
+    s.endsWith(".NS") ||
+    s.endsWith(".BO") ||
+    s.startsWith("^NSE") ||
+    s.startsWith("^CNX") ||
+    s.startsWith("^BSE")
+  ) {
+    return true;
+  }
   return INDIAN_EQUITY_SYMBOLS.has(s);
 }
 

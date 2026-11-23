@@ -78,17 +78,25 @@ function generateRealisticFallbackCandles(
     basePriceInput && basePriceInput > 0
       ? basePriceInput
       : symbol === "RELIANCE"
-      ? 1320.4
+      ? 1360.1
       : symbol === "TCS"
-      ? 3914.8
+      ? 2488.6
       : symbol === "INFY"
-      ? 1842.1
+      ? 1124.5
       : symbol === "HDFCBANK"
-      ? 1738.5
+      ? 829.8
       : symbol === "ICICIBANK"
-      ? 1258.9
+      ? 1612.9
+      : symbol === "SBIN"
+      ? 1148.1
+      : symbol === "BHARTIARTL"
+      ? 2139.3
       : symbol === "NIFTY50" || symbol === "NIFTY"
-      ? 24145.0
+      ? 25606.3
+      : symbol === "BANKNIFTY"
+      ? 63393.95
+      : symbol === "SENSEX"
+      ? 83335.58
       : symbol === "ETHUSDT"
       ? 3560.0
       : symbol === "SOLUSDT"
@@ -376,7 +384,22 @@ export const ChartPanel: React.FC<ChartPanelProps> = ({ symbol }) => {
           // Continue to fallback
         }
 
-        // 2. Multi-Mirror Fallback if backend returned empty or was unreachable
+        // 2. Fallback for Indian Equities / Indices (NSE/BSE) via Yahoo Finance API Route
+        if (rawCandles.length === 0 && isIndianSymbol(targetSymbol)) {
+          try {
+            const res = await fetch(`/api/market/candles?symbol=${targetSymbol}&tf=${timeframe}&limit=180`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.candles && Array.isArray(data.candles) && data.candles.length > 0) {
+                rawCandles = data.candles;
+              }
+            }
+          } catch {
+            // Proceed to next fallback
+          }
+        }
+
+        // 3. Multi-Mirror Fallback if backend returned empty or was unreachable
         // (Includes Binance Vision public mirror which bypasses ISP DNS blocks, Global, and US)
         if (rawCandles.length === 0) {
           const mirrorUrls = [
